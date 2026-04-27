@@ -2,8 +2,12 @@
 
 ## [0.4.0.dev1]
 ### Added
+- `Space`: TRS (Translation-Rotation-Scale) attributes `tx`, `ty`, `angle_rad`, `sx`, `sy` as first-class mutable properties
+- `Space.transform`: now a computed read-only property derived from TRS attributes on demand
 
 ### Changed
+- `Space.__init__`: signature changed from `(transform, parent)` to `(parent, tx, ty, angle_rad, sx, sy)` — spaces are now constructed via TRS parameters instead of a raw matrix
+- `create_space()`: simplified to delegate directly to `Space()` constructor (same API)
 - Decrease numpy version >=2.4.0 to >=2.3.5 to allow compatibility with environments where numpy 2.4.0 is not yet available.
 
 ## [0.3.0] - 2026-01-02

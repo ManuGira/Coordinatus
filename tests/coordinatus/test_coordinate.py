@@ -88,7 +88,7 @@ class TestCoordinateInit:
 
     def test_coordinate_init_with_system(self):
         """Test creating a coordinate with a custom space."""
-        space = Space(transform=translate2D(5, 3), parent=None)
+        space = Space(tx=5, ty=3)
         coord = Coordinate(
             kind=CoordinateKind.VECTOR,
             coords=np.array([2, 3]),
@@ -113,7 +113,7 @@ class TestPointInit:
 
     def test_point_init_with_system(self):
         """Test creating a point with a custom space."""
-        space = Space(transform=translate2D(10, 20), parent=None)
+        space = Space(tx=10, ty=20)
         point = Point(coords=np.array([1, 1]), space=space)
         
         assert point.kind == CoordinateKind.POINT
@@ -149,7 +149,7 @@ class TestVectorInit:
 
     def test_vector_init_with_system(self):
         """Test creating a vector with a custom space."""
-        space = Space(transform=rotate2D(np.pi / 4), parent=None)
+        space = Space(angle_rad=np.pi / 4)
         vector = Vector(coords=np.array([1, 1]), space=space)
         
         assert vector.kind == CoordinateKind.VECTOR
@@ -177,7 +177,7 @@ class TestCoordinateToAbsolute:
 
     def test_coordinate_base_class_to_absolute(self):
         """Test to_absolute with base Coordinate class (for coverage)."""
-        space = Space(transform=translate2D(5, 3), parent=None)
+        space = Space(tx=5, ty=3)
         coord = Coordinate(kind=CoordinateKind.POINT, coords=np.array([1, 2]), space=space)
         
         result = coord.to_absolute()
@@ -189,7 +189,7 @@ class TestCoordinateToAbsolute:
 
     def test_to_global_no_parent(self):
         """Test to_absolute when space has no parent (root space)."""
-        space = Space(transform=translate2D(5, 3), parent=None)
+        space = Space(tx=5, ty=3)
         point = Point(coords=np.array([1, 2]), space=space)
         
         result = point.to_absolute()
@@ -203,8 +203,8 @@ class TestCoordinateToAbsolute:
 
     def test_to_global_one_level(self):
         """Test to_absolute with one parent level."""
-        parent = Space(transform=translate2D(10, 5), parent=None)
-        child_space = Space(transform=translate2D(3, 2), parent=parent)
+        parent = Space(tx=10, ty=5)
+        child_space = Space(parent=parent, tx=3, ty=2)
         point = Point(coords=np.array([1, 1]), space=child_space)
         
         result = point.to_absolute()
@@ -221,9 +221,9 @@ class TestCoordinateToAbsolute:
 
     def test_to_global_multiple_levels(self):
         """Test to_absolute with nested hierarchy."""
-        root = Space(transform=translate2D(100, 100), parent=None)
-        middle = Space(transform=translate2D(10, 10), parent=root)
-        leaf = Space(transform=translate2D(1, 1), parent=middle)
+        root = Space(tx=100, ty=100)
+        middle = Space(parent=root, tx=10, ty=10)
+        leaf = Space(parent=middle, tx=1, ty=1)
         
         point = Point(coords=np.array([0, 0]), space=leaf)
         result = point.to_absolute()
@@ -238,9 +238,9 @@ class TestCoordinateToAbsolute:
 
     def test_to_global_with_rotation(self):
         """Test to_absolute with rotated coordinate space."""
-        parent = Space(transform=np.eye(3), parent=None)
+        parent = Space()
         # Child rotated 90 degrees
-        child = Space(transform=rotate2D(np.pi / 2), parent=parent)
+        child = Space(parent=parent, angle_rad=np.pi / 2)
         
         # Point at (1, 0) in child space
         point = Point(coords=np.array([1, 0]), space=child)
@@ -254,8 +254,8 @@ class TestCoordinateToAbsolute:
 
     def test_to_global_vector_ignores_translation(self):
         """Test that vectors ignore translation when going to absolute."""
-        parent = Space(transform=translate2D(10, 20), parent=None)
-        child = Space(transform=translate2D(5, 5), parent=parent)
+        parent = Space(tx=10, ty=20)
+        child = Space(parent=parent, tx=5, ty=5)
         
         vector = Vector(coords=np.array([1, 0]), space=child)
         result = vector.to_absolute()
@@ -273,8 +273,8 @@ class TestCoordinateToSpace:
 
     def test_coordinate_base_class_relative_to(self):
         """Test relative_to with base Coordinate class (for coverage)."""
-        space_a = Space(transform=translate2D(5, 0), parent=None)
-        space_b = Space(transform=translate2D(0, 3), parent=None)
+        space_a = Space(tx=5)
+        space_b = Space(ty=3)
         coord = Coordinate(kind=CoordinateKind.POINT, coords=np.array([0, 0]), space=space_a)
         
         result = coord.relative_to(space_b)
@@ -286,7 +286,7 @@ class TestCoordinateToSpace:
 
     def test_to_system_same_system(self):
         """Test converting to the same space."""
-        space = Space(transform=translate2D(5, 3), parent=None)
+        space = Space(tx=5, ty=3)
         point = Point(coords=np.array([1, 2]), space=space)
         
         result = point.relative_to(space)
@@ -297,9 +297,9 @@ class TestCoordinateToSpace:
 
     def test_to_system_siblings(self):
         """Test converting between sibling coordinate spaces."""
-        parent = Space(transform=np.eye(3), parent=None)
-        space_a = Space(transform=translate2D(5, 0), parent=parent)
-        space_b = Space(transform=translate2D(0, 3), parent=parent)
+        parent = Space()
+        space_a = Space(parent=parent, tx=5)
+        space_b = Space(parent=parent, ty=3)
         
         # Point at (0, 0) in space A
         point = Point(coords=np.array([0, 0]), space=space_a)
@@ -314,8 +314,8 @@ class TestCoordinateToSpace:
 
     def test_to_system_parent_to_child(self):
         """Test converting from parent to child space."""
-        parent = Space(transform=translate2D(10, 5), parent=None)
-        child = Space(transform=translate2D(3, 2), parent=parent)
+        parent = Space(tx=10, ty=5)
+        child = Space(parent=parent, tx=3, ty=2)
         
         point = Point(coords=np.array([0, 0]), space=parent)
         result = point.relative_to(child)
@@ -328,8 +328,8 @@ class TestCoordinateToSpace:
 
     def test_to_system_child_to_parent(self):
         """Test converting from child to parent space."""
-        parent = Space(transform=translate2D(10, 5), parent=None)
-        child = Space(transform=translate2D(3, 2), parent=parent)
+        parent = Space(tx=10, ty=5)
+        child = Space(parent=parent, tx=3, ty=2)
         
         point = Point(coords=np.array([0, 0]), space=child)
         result = point.relative_to(parent)
@@ -340,8 +340,8 @@ class TestCoordinateToSpace:
 
     def test_to_system_with_rotation(self):
         """Test converting between rotated spaces."""
-        space_a = Space(transform=np.eye(3), parent=None)
-        space_b = Space(transform=rotate2D(np.pi / 2), parent=None)
+        space_a = Space()
+        space_b = Space(angle_rad=np.pi / 2)
         
         # Point at (1, 0) in space A
         point = Point(coords=np.array([1, 0]), space=space_a)
@@ -354,8 +354,8 @@ class TestCoordinateToSpace:
 
     def test_to_system_vector_translation(self):
         """Test that vector conversion ignores translation."""
-        space_a = Space(transform=translate2D(10, 5), parent=None)
-        space_b = Space(transform=translate2D(20, 15), parent=None)
+        space_a = Space(tx=10, ty=5)
+        space_b = Space(tx=20, ty=15)
         
         vector = Vector(coords=np.array([1, 0]), space=space_a)
         result = vector.relative_to(space_b)
@@ -366,8 +366,8 @@ class TestCoordinateToSpace:
 
     def test_to_system_vector_rotation(self):
         """Test that vector conversion respects rotation."""
-        space_a = Space(transform=np.eye(3), parent=None)
-        space_b = Space(transform=rotate2D(np.pi / 2), parent=None)
+        space_a = Space()
+        space_b = Space(angle_rad=np.pi / 2)
         
         vector = Vector(coords=np.array([1, 0]), space=space_a)
         result = vector.relative_to(space_b)
@@ -377,11 +377,11 @@ class TestCoordinateToSpace:
 
     def test_to_system_complex_hierarchy(self):
         """Test conversion in complex hierarchy."""
-        root = Space(transform=np.eye(3), parent=None)
-        branch_a = Space(transform=translate2D(10, 0), parent=root)
-        leaf_a = Space(transform=rotate2D(np.pi / 4), parent=branch_a)
+        root = Space()
+        branch_a = Space(parent=root, tx=10)
+        leaf_a = Space(parent=branch_a, angle_rad=np.pi / 4)
         
-        branch_b = Space(transform=translate2D(0, 10), parent=root)
+        branch_b = Space(parent=root, ty=10)
         
         point = Point(coords=np.array([1, 0]), space=leaf_a)
         result = point.relative_to(branch_b)
@@ -462,7 +462,7 @@ class TestDxNArraySupport:
 
     def test_point_with_multiple_coordinates(self):
         """Test Point class with multiple coordinates."""
-        space = Space(transform=translate2D(5, 3), parent=None)
+        space = Space(tx=5, ty=3)
         # Create a point with multiple coordinates
         coords = np.array([[1, 2, 3], [2, 4, 6]])  # 3 points
         point = Point(coords=coords, space=space)
@@ -475,7 +475,7 @@ class TestDxNArraySupport:
 
     def test_vector_with_multiple_coordinates(self):
         """Test Vector class with multiple coordinates."""
-        space = Space(transform=translate2D(5, 3), parent=None)
+        space = Space(tx=5, ty=3)
         # Create a vector with multiple coordinates
         coords = np.array([[1, 2, 3], [2, 4, 6]])  # 3 vectors
         vector = Vector(coords=coords, space=space)
@@ -611,7 +611,7 @@ class TestCoordinateOperators:
 
     def test_operations_preserve_space(self):
         """Test that operations preserve the coordinate space."""
-        space = Space(transform=translate2D(5, 3))
+        space = Space(tx=5, ty=3)
         point = Point([1, 2], space=space)
         
         result = point * 2
@@ -623,7 +623,7 @@ class TestCoordinateBaseClassOperations:
 
     def test_coordinate_base_class_addition(self):
         """Test addition with base Coordinate class."""
-        space = Space(transform=np.eye(3), parent=None)
+        space = Space()
         coord = Coordinate(kind=CoordinateKind.POINT, coords=np.array([1, 2]), space=space)
         
         result = coord + np.array([3, 4])
@@ -634,7 +634,7 @@ class TestCoordinateBaseClassOperations:
 
     def test_coordinate_base_class_subtraction(self):
         """Test subtraction with base Coordinate class."""
-        space = Space(transform=np.eye(3), parent=None)
+        space = Space()
         coord = Coordinate(kind=CoordinateKind.POINT, coords=np.array([5, 7]), space=space)
         
         result = coord - np.array([1, 2])
@@ -645,7 +645,7 @@ class TestCoordinateBaseClassOperations:
 
     def test_coordinate_base_class_multiplication(self):
         """Test multiplication with base Coordinate class."""
-        space = Space(transform=np.eye(3), parent=None)
+        space = Space()
         coord = Coordinate(kind=CoordinateKind.VECTOR, coords=np.array([2, 3]), space=space)
         
         result = coord * 2
@@ -656,7 +656,7 @@ class TestCoordinateBaseClassOperations:
 
     def test_coordinate_base_class_division(self):
         """Test division with base Coordinate class."""
-        space = Space(transform=np.eye(3), parent=None)
+        space = Space()
         coord = Coordinate(kind=CoordinateKind.POINT, coords=np.array([4, 6]), space=space)
         
         result = coord / 2
@@ -667,7 +667,7 @@ class TestCoordinateBaseClassOperations:
 
     def test_coordinate_base_class_negation(self):
         """Test negation with base Coordinate class."""
-        space = Space(transform=np.eye(3), parent=None)
+        space = Space()
         coord = Coordinate(kind=CoordinateKind.VECTOR, coords=np.array([1, -2]), space=space)
         
         result = -coord
@@ -678,7 +678,7 @@ class TestCoordinateBaseClassOperations:
 
     def test_coordinate_base_class_abs(self):
         """Test absolute value with base Coordinate class."""
-        space = Space(transform=np.eye(3), parent=None)
+        space = Space()
         coord = Coordinate(kind=CoordinateKind.POINT, coords=np.array([-3, 4]), space=space)
         
         result = abs(coord)
@@ -689,7 +689,7 @@ class TestCoordinateBaseClassOperations:
 
     def test_coordinate_base_class_radd(self):
         """Test right addition with base Coordinate class."""
-        space = Space(transform=np.eye(3), parent=None)
+        space = Space()
         coord = Coordinate(kind=CoordinateKind.POINT, coords=np.array([1, 2]), space=space)
         
         # When left operand is a Python scalar (not numpy), __radd__ is called
@@ -701,7 +701,7 @@ class TestCoordinateBaseClassOperations:
 
     def test_coordinate_base_class_rsub(self):
         """Test right subtraction with base Coordinate class."""
-        space = Space(transform=np.eye(3), parent=None)
+        space = Space()
         coord = Coordinate(kind=CoordinateKind.POINT, coords=np.array([1, 2]), space=space)
         
         # When left operand is a Python scalar (not numpy), __rsub__ is called
@@ -713,7 +713,7 @@ class TestCoordinateBaseClassOperations:
 
     def test_coordinate_base_class_rmul(self):
         """Test right multiplication with base Coordinate class."""
-        space = Space(transform=np.eye(3), parent=None)
+        space = Space()
         coord = Coordinate(kind=CoordinateKind.VECTOR, coords=np.array([2, 3]), space=space)
         
         result = 2 * coord
@@ -724,7 +724,7 @@ class TestCoordinateBaseClassOperations:
 
     def test_coordinate_base_class_rtruediv(self):
         """Test right division with base Coordinate class."""
-        space = Space(transform=np.eye(3), parent=None)
+        space = Space()
         coord = Coordinate(kind=CoordinateKind.POINT, coords=np.array([2, 4]), space=space)
         
         # When left operand is a Python scalar (not numpy), __rtruediv__ is called
@@ -736,7 +736,7 @@ class TestCoordinateBaseClassOperations:
 
     def test_coordinate_base_class_coord_addition(self):
         """Test adding two base Coordinate instances."""
-        space = Space(transform=np.eye(3), parent=None)
+        space = Space()
         coord1 = Coordinate(kind=CoordinateKind.POINT, coords=np.array([1, 2]), space=space)
         coord2 = Coordinate(kind=CoordinateKind.POINT, coords=np.array([3, 4]), space=space)
         
@@ -758,8 +758,8 @@ class TestCoordinateBaseClassOperations:
 
     def test_different_spaces_addition_raises_error(self):
         """Test that adding coordinates from different spaces raises an error."""
-        space1 = Space(transform=translate2D(5, 0))
-        space2 = Space(transform=translate2D(0, 5))
+        space1 = Space(tx=5)
+        space2 = Space(ty=5)
         
         point1 = Point([1, 2], space=space1)
         point2 = Point([3, 4], space=space2)
@@ -770,8 +770,8 @@ class TestCoordinateBaseClassOperations:
 
     def test_different_spaces_subtraction_raises_error(self):
         """Test that subtracting coordinates from different spaces raises an error."""
-        space1 = Space(transform=translate2D(5, 0))
-        space2 = Space(transform=translate2D(0, 5))
+        space1 = Space(tx=5)
+        space2 = Space(ty=5)
         
         point1 = Point([1, 2], space=space1)
         point2 = Point([3, 4], space=space2)
@@ -782,8 +782,8 @@ class TestCoordinateBaseClassOperations:
 
     def test_different_spaces_multiplication_raises_error(self):
         """Test that multiplying coordinates from different spaces raises an error."""
-        space1 = Space(transform=translate2D(5, 0))
-        space2 = Space(transform=translate2D(0, 5))
+        space1 = Space(tx=5)
+        space2 = Space(ty=5)
         
         point1 = Point([1, 2], space=space1)
         point2 = Point([3, 4], space=space2)
@@ -794,8 +794,8 @@ class TestCoordinateBaseClassOperations:
 
     def test_different_spaces_division_raises_error(self):
         """Test that dividing coordinates from different spaces raises an error."""
-        space1 = Space(transform=translate2D(5, 0))
-        space2 = Space(transform=translate2D(0, 5))
+        space1 = Space(tx=5)
+        space2 = Space(ty=5)
         
         point1 = Point([4, 6], space=space1)
         point2 = Point([2, 3], space=space2)
@@ -806,7 +806,7 @@ class TestCoordinateBaseClassOperations:
 
     def test_same_space_operations_work(self):
         """Test that operations between coordinates in the same space work correctly."""
-        space = Space(transform=translate2D(5, 0))
+        space = Space(tx=5)
         
         point1 = Point([1, 2], space=space)
         point2 = Point([3, 4], space=space)
@@ -926,11 +926,11 @@ class TestPointAndVectorBehavior:
 
     def test_point_affected_by_translation(self):
         """Test that points are affected by translation."""
-        space = Space(transform=translate2D(5, 3), parent=None)
+        space = Space(tx=5, ty=3)
         point = Point(coords=np.array([1, 2]), space=space)
         
         # When converting to identity space, point should be translated
-        identity_space = Space(transform=np.eye(3), parent=None)
+        identity_space = Space()
         result = point.relative_to(identity_space)
         
         expected = np.array([6, 5])
@@ -938,11 +938,11 @@ class TestPointAndVectorBehavior:
 
     def test_vector_unaffected_by_translation(self):
         """Test that vectors are unaffected by translation."""
-        space = Space(transform=translate2D(5, 3), parent=None)
+        space = Space(tx=5, ty=3)
         vector = Vector(coords=np.array([1, 2]), space=space)
         
         # When converting to identity space, vector should not be translated
-        identity_space = Space(transform=np.eye(3), parent=None)
+        identity_space = Space()
         result = vector.relative_to(identity_space)
         
         expected = np.array([1, 2])
@@ -950,10 +950,10 @@ class TestPointAndVectorBehavior:
 
     def test_point_scaled_from_origin(self):
         """Test that points are scaled from origin."""
-        space = Space(transform=scale2D(2, 2), parent=None)
+        space = Space(sx=2, sy=2)
         point = Point(coords=np.array([3, 4]), space=space)
         
-        identity_space = Space(transform=np.eye(3), parent=None)
+        identity_space = Space()
         result = point.relative_to(identity_space)
         
         expected = np.array([6, 8])
@@ -961,10 +961,10 @@ class TestPointAndVectorBehavior:
 
     def test_vector_scaled(self):
         """Test that vectors are also scaled."""
-        space = Space(transform=scale2D(2, 2), parent=None)
+        space = Space(sx=2, sy=2)
         vector = Vector(coords=np.array([3, 4]), space=space)
         
-        identity_space = Space(transform=np.eye(3), parent=None)
+        identity_space = Space()
         result = vector.relative_to(identity_space)
         
         expected = np.array([6, 8])
@@ -972,8 +972,8 @@ class TestPointAndVectorBehavior:
 
     def test_point_and_vector_both_rotate(self):
         """Test that both points and vectors rotate the same way."""
-        space = Space(transform=rotate2D(np.pi / 2), parent=None)
-        identity_space = Space(transform=np.eye(3), parent=None)
+        space = Space(angle_rad=np.pi / 2)
+        identity_space = Space()
         
         point = Point(coords=np.array([1, 0]), space=space)
         vector = Vector(coords=np.array([1, 0]), space=space)
@@ -992,7 +992,7 @@ class TestTypePreservation:
 
     def test_point_to_absolute_preserves_type(self):
         """Test that Point.to_absolute() returns a Point instance."""
-        space = Space(transform=translate2D(5, 3), parent=None)
+        space = Space(tx=5, ty=3)
         point = Point(coords=np.array([1, 2]), space=space)
         
         result = point.to_absolute()
@@ -1002,7 +1002,7 @@ class TestTypePreservation:
 
     def test_vector_to_absolute_preserves_type(self):
         """Test that Vector.to_absolute() returns a Vector instance."""
-        space = Space(transform=translate2D(5, 3), parent=None)
+        space = Space(tx=5, ty=3)
         vector = Vector(coords=np.array([1, 0]), space=space)
         
         result = vector.to_absolute()
@@ -1012,8 +1012,8 @@ class TestTypePreservation:
 
     def test_point_relative_to_preserves_type(self):
         """Test that Point.relative_to() returns a Point instance."""
-        space_a = Space(transform=translate2D(5, 0), parent=None)
-        space_b = Space(transform=translate2D(0, 3), parent=None)
+        space_a = Space(tx=5)
+        space_b = Space(ty=3)
         point = Point(coords=np.array([0, 0]), space=space_a)
         
         result = point.relative_to(space_b)
@@ -1023,8 +1023,8 @@ class TestTypePreservation:
 
     def test_vector_relative_to_preserves_type(self):
         """Test that Vector.relative_to() returns a Vector instance."""
-        space_a = Space(transform=translate2D(5, 0), parent=None)
-        space_b = Space(transform=translate2D(0, 3), parent=None)
+        space_a = Space(tx=5)
+        space_b = Space(ty=3)
         vector = Vector(coords=np.array([1, 0]), space=space_a)
         
         result = vector.relative_to(space_b)
@@ -1033,7 +1033,7 @@ class TestTypePreservation:
 
     def test_point_addition_preserves_type(self):
         """Test that Point + value returns a Point instance."""
-        space = Space(transform=np.eye(3), parent=None)
+        space = Space()
         point = Point(coords=np.array([1, 2]), space=space)
         
         result = point + np.array([3, 4])
@@ -1043,7 +1043,7 @@ class TestTypePreservation:
 
     def test_vector_addition_preserves_type(self):
         """Test that Vector + value returns a Vector instance."""
-        space = Space(transform=np.eye(3), parent=None)
+        space = Space()
         vector = Vector(coords=np.array([1, 2]), space=space)
         
         result = vector + np.array([3, 4])
@@ -1053,7 +1053,7 @@ class TestTypePreservation:
 
     def test_point_multiplication_preserves_type(self):
         """Test that Point * scalar returns a Point instance."""
-        space = Space(transform=np.eye(3), parent=None)
+        space = Space()
         point = Point(coords=np.array([1, 2]), space=space)
         
         result = point * 2
@@ -1063,7 +1063,7 @@ class TestTypePreservation:
 
     def test_vector_multiplication_preserves_type(self):
         """Test that Vector * scalar returns a Vector instance."""
-        space = Space(transform=np.eye(3), parent=None)
+        space = Space()
         vector = Vector(coords=np.array([1, 2]), space=space)
         
         result = vector * 2
@@ -1073,7 +1073,7 @@ class TestTypePreservation:
 
     def test_point_negation_preserves_type(self):
         """Test that -Point returns a Point instance."""
-        space = Space(transform=np.eye(3), parent=None)
+        space = Space()
         point = Point(coords=np.array([1, 2]), space=space)
         
         result = -point
@@ -1083,7 +1083,7 @@ class TestTypePreservation:
 
     def test_vector_negation_preserves_type(self):
         """Test that -Vector returns a Vector instance."""
-        space = Space(transform=np.eye(3), parent=None)
+        space = Space()
         vector = Vector(coords=np.array([1, 2]), space=space)
         
         result = -vector
@@ -1093,7 +1093,7 @@ class TestTypePreservation:
 
     def test_point_division_preserves_type(self):
         """Test that Point / scalar returns a Point instance."""
-        space = Space(transform=np.eye(3), parent=None)
+        space = Space()
         point = Point(coords=np.array([4, 6]), space=space)
         
         result = point / 2
@@ -1103,7 +1103,7 @@ class TestTypePreservation:
 
     def test_vector_division_preserves_type(self):
         """Test that Vector / scalar returns a Vector instance."""
-        space = Space(transform=np.eye(3), parent=None)
+        space = Space()
         vector = Vector(coords=np.array([4, 6]), space=space)
         
         result = vector / 2
@@ -1113,7 +1113,7 @@ class TestTypePreservation:
 
     def test_point_abs_preserves_type(self):
         """Test that abs(Point) returns a Point instance."""
-        space = Space(transform=np.eye(3), parent=None)
+        space = Space()
         point = Point(coords=np.array([-1, -2]), space=space)
         
         result = abs(point)
@@ -1123,7 +1123,7 @@ class TestTypePreservation:
 
     def test_vector_abs_preserves_type(self):
         """Test that abs(Vector) returns a Vector instance."""
-        space = Space(transform=np.eye(3), parent=None)
+        space = Space()
         vector = Vector(coords=np.array([-1, -2]), space=space)
         
         result = abs(vector)

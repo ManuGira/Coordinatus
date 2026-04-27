@@ -88,7 +88,7 @@ class Coordinate:
         space: The coordinate space this coordinate is defined in
     
     Examples:
-        >>> space = Space(transform=translate2D(5, 3))
+        >>> space = Space(tx=5, ty=3)
         >>> coord = Coordinate(CoordinateKind.POINT, np.array([1, 2]), space)
         >>> coord = Coordinate(CoordinateKind.POINT, [1, 2], space)  # list also works
         >>> coord = Coordinate(CoordinateKind.POINT, (1, 2), space)  # tuple also works
@@ -274,8 +274,8 @@ class Coordinate:
             New Coordinate with coordinates expressed in absolute space.
         
         Examples:
-            >>> root = Space(transform=translate2D(10, 5))
-            >>> child = Space(transform=translate2D(3, 2), parent=root)
+            >>> root = Space(tx=10, ty=5)
+            >>> child = Space(parent=root, tx=3, ty=2)
             >>> point = Point(np.array([1, 1]), space=child)
             >>> absolute_point = point.to_absolute()
             >>> absolute_point.coords  # Should be [14, 8]
@@ -297,8 +297,8 @@ class Coordinate:
             New Coordinate with coordinates expressed in the target space.
         
         Examples:
-            >>> space_a = Space(transform=translate2D(5, 0))
-            >>> space_b = Space(transform=translate2D(0, 3))
+            >>> space_a = Space(tx=5)
+            >>> space_b = Space(ty=3)
             >>> point_in_a = Point(np.array([0, 0]), space=space_a)
             >>> point_in_b = point_in_a.relative_to(space_b)
             >>> point_in_b.coords  # Should be [5, -3]
@@ -322,7 +322,7 @@ class Point(Coordinate):
     
     Examples:
         >>> # Point at origin in a translated space
-        >>> space = Space(transform=translate2D(10, 5))
+        >>> space = Space(tx=10, ty=5)
         >>> point = Point([0, 0], space=space)  # list works
         >>> point = Point((0, 0), space=space)  # tuple works
         >>> point = Point(np.array([0, 0]), space=space)  # numpy array works
@@ -350,7 +350,7 @@ class Vector(Coordinate):
     
     Examples:
         >>> # Vector in a translated space
-        >>> space = Space(transform=translate2D(10, 5))
+        >>> space = Space(tx=10, ty=5)
         >>> vector = Vector([1, 0], space=space)  # list works
         >>> vector = Vector((1, 0), space=space)  # tuple works
         >>> vector = Vector(np.array([1, 0]), space=space)  # numpy array works

@@ -8,81 +8,108 @@ from .transforms import trs2D
 class Space:
     """A coordinate space that can be nested within other spaces.
     
-    Each space has a position, rotation, and scale relative to its parent space,
-    encoded in a transform matrix. Use functions from transforms.py to easily
-    create these matrices. Spaces can be organized in a hierarchy, like objects
-    in a scene graph.
+    Each space stores its position, rotation, and scale (TRS) as first-class
+    attributes. The ``transform`` property derives the 3x3 affine matrix from
+    these attributes on demand, so individual components can be modified
+    directly without rebuilding the matrix manually. Spaces can be organized
+    in a hierarchy, like objects in a scene graph.
     
     Attributes:
-        transform: 3x3 affine transformation matrix from this space to its parent.
-                  Defaults to identity if not specified.
+        tx: Translation along the X-axis relative to the parent space.
+        ty: Translation along the Y-axis relative to the parent space.
+        angle_rad: Rotation angle in radians (counter-clockwise) relative to
+                   the parent space.
+        sx: Scale factor along the X-axis relative to the parent space.
+        sy: Scale factor along the Y-axis relative to the parent space.
         parent: Optional parent coordinate space. If None, this is a root/absolute space.
+        transform: Read-only 3x3 affine transformation matrix derived from the
+                   TRS attributes. Recomputed each time it is accessed.
     
     Examples:
         >>> # Create a root coordinate space
         >>> root = Space()
         >>> 
         >>> # Create a child space translated by (5, 3) relative to root
-        >>> child = Space(transform=translate2D(5, 3), parent=root)
+        >>> child = Space(parent=root, tx=5, ty=3)
+        >>> 
+        >>> # Mutate a single TRS component — the transform updates automatically
+        >>> child.tx = 10
         >>> 
         >>> # Get transformation to absolute space
         >>> absolute_t = child.compute_absolute_transform()
     """
-    def __init__(self, transform: Optional[np.ndarray] = None, parent: Optional['Space'] = None):
-        """Initialize a coordinate space.
+    def __init__(self, parent: Optional['Space'] = None, tx: float = 0.0, ty: float = 0.0,
+                 angle_rad: float = 0.0, sx: float = 1.0, sy: float = 1.0):
+        """Initialize a coordinate space with TRS parameters.
         
         Args:
-            transform: 3x3 affine transformation matrix relative to parent.
-                      If None, uses identity (no transformation).
             parent: Parent coordinate space. If None, this is a root space.
+            tx: Translation along the X-axis (default: 0.0).
+            ty: Translation along the Y-axis (default: 0.0).
+            angle_rad: Rotation angle in radians, counter-clockwise (default: 0.0).
+            sx: Scale factor along the X-axis (default: 1.0).
+            sy: Scale factor along the Y-axis (default: 1.0).
         """
-        self.transform = transform if transform is not None else np.eye(3)
         self.parent = parent
+        self.tx = tx
+        self.ty = ty
+        self.angle_rad = angle_rad
+        self.sx = sx
+        self.sy = sy
+
+    @property
+    def transform(self) -> np.ndarray:
+        """3x3 affine transformation matrix derived from the TRS attributes.
+        
+        Computed from ``tx``, ``ty``, ``angle_rad``, ``sx``, ``sy`` using
+        ``trs2D``. Modifying any TRS attribute is immediately reflected the
+        next time ``transform`` is accessed.
+        
+        Returns:
+            3x3 numpy array representing the transformation from this space's
+            local coordinates to the parent's coordinate system.
+        
+        Examples:
+            >>> space = Space(tx=5, ty=3)
+            >>> space.transform  # translation matrix (5, 3)
+            >>> space.tx = 10
+            >>> space.transform  # translation matrix (10, 3)
+        """
+        return trs2D(self.tx, self.ty, self.angle_rad, self.sx, self.sy)
 
     @property
     def D_in(self) -> int:
-        """
-        Returns the input dimension of this space's coordinate space.
+        """Returns the input dimension of this space's coordinate system.
         
-        This represents the dimensionality of points and vectors that are
-        expressed in this space's local coordinate system (before transformation).
-        For a 3x3 transformation matrix, D_in = 2 (2D space).
-        For a 4x4 transformation matrix, D_in = 3 (3D space).
+        For the 2D TRS spaces represented by this class the transform is
+        always a 3x3 matrix, so ``D_in`` is always 2.
         
         Returns:
-            The number of dimensions in the space's input space (excludes the
-            homogeneous coordinate).
+            The number of dimensions in the space's input coordinate system
+            (excludes the homogeneous coordinate row/column).
         
         Examples:
-            >>> space_2d = Space(transform=np.eye(3))  # 3x3 matrix
-            >>> space_2d.D_in
+            >>> space = Space()
+            >>> space.D_in
             2
-            >>> space_3d = Space(transform=np.eye(4))  # 4x4 matrix
-            >>> space_3d.D_in
-            3
         """
         return self.transform.shape[1] - 1  # Subtract 1 for homogeneous coordinate
     
     @property
     def D_out(self) -> int:
-        """
-        Returns the output dimension of the parent's coordinate space.
+        """Returns the output dimension of the parent's coordinate system.
         
-        This represents the dimensionality of the parent space's coordinate
-        system (after transformation). For standard transformations, D_out equals
-        Din, but dimension-changing transformations (like projections) can have
-        D_out ≠ Din.
+        For the 2D TRS spaces represented by this class the transform is
+        always a 3x3 matrix, so ``D_out`` is always 2.
         
         Returns:
-            The number of dimensions in the parent's coordinate space (excludes
-            the homogeneous coordinate).
+            The number of dimensions in the parent's coordinate system
+            (excludes the homogeneous coordinate row/column).
         
         Examples:
-            >>> space_2d = Space(transform=np.eye(3))  # 3x3 matrix
-            >>> space_2d.D_out
+            >>> space = Space()
+            >>> space.D_out
             2
-            >>> # For a projection from 3D to 2D (3x4 matrix):
-            >>> # D_out would be 2, Din would be 3
         """
         return self.transform.shape[0] - 1  # Subtract 1 for homogeneous coordinate
 
@@ -108,7 +135,7 @@ class Space:
         if self is other:
             return True
         
-        # Both are identity spaces (no parent and identity transform)
+        # Both are identity spaces (no parent and all TRS values are defaults)
         if self.parent is None and other.parent is None:
             return np.allclose(self.transform, np.eye(3)) and np.allclose(other.transform, np.eye(3))
         
@@ -129,8 +156,8 @@ class Space:
             3x3 numpy array representing the transformation from space-relative to absolute coordinates.
         
         Examples:
-            >>> root = Space(transform=translate2D(10, 5))
-            >>> child = Space(transform=translate2D(3, 2), parent=root)
+            >>> root = Space(tx=10, ty=5)
+            >>> child = Space(parent=root, tx=3, ty=2)
             >>> absolute_t = child.compute_absolute_transform()
             >>> # absolute_t represents translation by (13, 7)
         """
@@ -155,8 +182,8 @@ class Space:
             to the target space.
         
         Examples:
-            >>> space_a = Space(transform=translate2D(5, 0))
-            >>> space_b = Space(transform=translate2D(0, 3))
+            >>> space_a = Space(tx=5)
+            >>> space_b = Space(ty=3)
             >>> convert_t = space_a.compute_relative_transform_to(space_b)
             >>> # Use convert_t to express space_a coordinates in space_b
         """
@@ -167,9 +194,10 @@ class Space:
 def create_space(parent: Optional[Space]=None, tx: float=0.0, ty: float=0.0, angle_rad: float=0.0, sx: float=1.0, sy: float=1.0) -> Space:
     """Factory function to create a coordinate space using TRS (Translation-Rotation-Scale) parameters.
     
-    Convenience function that constructs a coordinate space from intuitive transformation
-    parameters instead of requiring a raw transformation matrix. The transformations are
-    applied in TRS order: scale first, then rotate, then translate.
+    Convenience wrapper around the ``Space`` constructor. Accepts the same TRS
+    parameters as ``Space.__init__`` and returns a new ``Space`` instance.  The
+    transformations are applied in TRS order: scale first, then rotate, then
+    translate.
     
     Args:
         parent: Parent coordinate space. If None, creates a root space.
@@ -189,5 +217,4 @@ def create_space(parent: Optional[Space]=None, tx: float=0.0, ty: float=0.0, ang
         >>> # Create child rotated 90° and scaled 2x
         >>> child = create_space(root, angle_rad=np.pi/2, sx=2, sy=2)
     """
-    transform = trs2D(tx, ty, angle_rad, sx, sy)
-    return Space(transform=transform, parent=parent)
+    return Space(parent=parent, tx=tx, ty=ty, angle_rad=angle_rad, sx=sx, sy=sy)
