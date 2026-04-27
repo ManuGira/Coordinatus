@@ -157,7 +157,8 @@ class TestSpaceDimensions:
         ]
 
         for space in spaces:
-            assert space.D_in == space.D_out == 2, "D_in and D_out should both be 2 for 2D TRS spaces"
+            assert space.D_in == 2, f"D_in should be 2 for space with tx={space.tx}, ty={space.ty}, angle_rad={space.angle_rad}, sx={space.sx}, sy={space.sy}"
+            assert space.D_out == 2, f"D_out should be 2 for space with tx={space.tx}, ty={space.ty}, angle_rad={space.angle_rad}, sx={space.sx}, sy={space.sy}"
 
 
 class TestSpaceEquality:

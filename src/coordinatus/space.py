@@ -195,7 +195,7 @@ def create_space(parent: Optional[Space]=None, tx: float=0.0, ty: float=0.0, ang
     """Factory function to create a coordinate space using TRS (Translation-Rotation-Scale) parameters.
     
     Convenience wrapper around the ``Space`` constructor. Accepts the same TRS
-    parameters as ``Space.__init__`` and returns a new ``Space`` instance.  The
+    parameters as ``Space.__init__`` and returns a new ``Space`` instance. The
     transformations are applied in TRS order: scale first, then rotate, then
     translate.
     
