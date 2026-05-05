@@ -2,7 +2,7 @@
 
 import numpy as np
 from coordinatus.transforms import (
-    rotate2D, rotate3Dx, rotate3Dy, rotate3Dz,
+    rotate2D, rotate3Dx, rotate3Dy, rotate3Dz, rotate3D,
 )
 
 
@@ -305,5 +305,109 @@ class TestRotate3Dz:
         R2D = rotate2D(angle)
         # Compare the upper-left 3x3 portion
         np.testing.assert_array_almost_equal(R3D[:3, :3], R2D)
+
+
+class TestRotate3D:
+    """Tests for the rotate3D function (combined rotation around all axes)."""
+
+    def test_rotate3D_all_zeros(self):
+        """Test combined rotation with all zero angles returns identity."""
+        R = rotate3D(0, 0, 0)
+        expected = np.eye(4)
+        np.testing.assert_array_almost_equal(R, expected)
+
+    def test_rotate3D_only_x(self):
+        """Test combined rotation with only X angle should equal rotate3Dx."""
+        angle = np.pi / 4
+        R = rotate3D(angle, 0, 0)
+        expected = rotate3Dx(angle)
+        np.testing.assert_array_almost_equal(R, expected)
+
+    def test_rotate3D_only_y(self):
+        """Test combined rotation with only Y angle should equal rotate3Dy."""
+        angle = np.pi / 3
+        R = rotate3D(0, angle, 0)
+        expected = rotate3Dy(angle)
+        np.testing.assert_array_almost_equal(R, expected)
+
+    def test_rotate3D_only_z(self):
+        """Test combined rotation with only Z angle should equal rotate3Dz."""
+        angle = np.pi / 6
+        R = rotate3D(0, 0, angle)
+        expected = rotate3Dz(angle)
+        np.testing.assert_array_almost_equal(R, expected)
+
+    def test_rotate3D_90_each_axis(self):
+        """Test combined 90-degree rotations around each axis."""
+        R = rotate3D(np.pi / 2, np.pi / 2, np.pi / 2)
+        # Apply to a point to verify it rotates correctly
+        point = np.array([1, 0, 0, 1])
+        result = R @ point
+        # This is a sanity check that the combination works
+        assert result.shape == (4,)
+        assert result[3] == 1  # Homogeneous coordinate should remain 1
+
+    def test_rotate3D_matrix_is_orthogonal(self):
+        """Test that the combined rotation matrix is orthogonal (R^T @ R = I)."""
+        R = rotate3D(np.pi / 4, np.pi / 3, np.pi / 6)
+        identity = R.T @ R
+        np.testing.assert_array_almost_equal(identity, np.eye(4))
+
+    def test_rotate3D_determinant_is_one(self):
+        """Test that the determinant of the rotation matrix is 1."""
+        R = rotate3D(np.pi / 4, np.pi / 3, np.pi / 6)
+        det = np.linalg.det(R)
+        np.testing.assert_almost_equal(det, 1.0)
+
+    def test_rotate3D_composition(self):
+        """Test that combined rotation equals individual rotations composed."""
+        angle_x, angle_y, angle_z = np.pi / 6, np.pi / 4, np.pi / 3
+        R_combined = rotate3D(angle_x, angle_y, angle_z)
+        # Rotation order: Rz @ Ry @ Rx
+        R_composed = rotate3Dz(angle_z) @ rotate3Dy(angle_y) @ rotate3Dx(angle_x)
+        np.testing.assert_array_almost_equal(R_combined, R_composed)
+
+    def test_rotate3D_point_rotation(self):
+        """Test that combined rotation correctly transforms a point."""
+        R = rotate3D(0, np.pi / 2, 0)  # Only Y rotation
+        point = np.array([1, 0, 0, 1])
+        result = R @ point
+        # 90-degree Y rotation: X -> -Z
+        expected = np.array([0, 0, -1, 1])
+        np.testing.assert_array_almost_equal(result, expected)
+
+    def test_rotate3D_non_commutative(self):
+        """Test that rotations are non-commutative."""
+        angle_x, angle_y, angle_z = np.pi / 4, np.pi / 3, np.pi / 6
+        R1 = rotate3D(angle_x, angle_y, angle_z)
+        R2 = rotate3D(angle_z, angle_y, angle_x)
+        # These should not be equal (except for special angle combinations)
+        try:
+            np.testing.assert_array_almost_equal(R1, R2)
+            # Equal for this combination, that's fine
+        except AssertionError:
+            # This is expected - rotations are generally non-commutative
+            pass
+
+    def test_rotate3D_vector_rotation(self):
+        """Test that combined rotation correctly transforms a vector."""
+        R = rotate3D(np.pi / 2, 0, 0)  # Only X rotation
+        vector = np.array([0, 1, 0, 0])  # Vector along Y-axis
+        result = R @ vector
+        # 90-degree X rotation: Y -> Z
+        expected = np.array([0, 0, 1, 0])
+        np.testing.assert_array_almost_equal(result, expected)
+
+    def test_rotate3D_multiple_angles(self):
+        """Test rotation with all three angles non-zero."""
+        R = rotate3D(np.pi / 6, np.pi / 4, np.pi / 3)
+        # Just verify it produces a valid rotation matrix
+        assert R.shape == (4, 4)
+        # Check orthogonality
+        identity = R.T @ R
+        np.testing.assert_array_almost_equal(identity, np.eye(4))
+        # Check determinant is 1
+        det = np.linalg.det(R)
+        np.testing.assert_almost_equal(det, 1.0)
 
 

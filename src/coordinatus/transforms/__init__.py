@@ -3,7 +3,7 @@
 import numpy as np
 
 from .translate import translate, translate2D, translate3D
-from .rotate import rotate2D, rotate3Dx, rotate3Dy, rotate3Dz
+from .rotate import rotate2D, rotate3Dx, rotate3Dy, rotate3Dz, rotate3D
 from .scale import scale, scale2D, scale3D, shear2D
 from .dimension import (
     swap_axes,

@@ -14,7 +14,7 @@ class Space:
     in a scene graph.
     
     Attributes:
-        transform: 3x3 affine transformation matrix from this space to its parent.
+        transform: MxN affine homogeneous transformation matrix from this space to its parent.
                   Defaults to identity if not specified.
         parent: Optional parent coordinate space. If None, this is a root/absolute space.
     
