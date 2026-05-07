@@ -89,3 +89,7 @@ For any automation or AI agent execution, always use the `uv run` command format
 When using type hints, **prefer the built-in collection types** (`list`, `dict`, `tuple`, etc.) over importing from `typing` (e.g., avoid `from typing import List, Dict, Tuple`).
 Use `list[str]`, `dict[str, int]`, etc., for type annotations.
 
+## Writing Style
+
+When denoting matrix or array dimensions, prefer the ASCII `x` over the Unicode multiplication sign: write `2x2` not `2×2`, `3x3` not `3×3`, etc.
+

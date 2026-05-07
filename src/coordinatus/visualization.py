@@ -19,7 +19,7 @@ except ImportError:  # pragma: no cover
     _HAS_MATPLOTLIB = False
     _Axes = None  # type: ignore
 
-from .space import Space
+from .space import Space, Space2D
 from .coordinate import Point, Vector
 
 
@@ -63,11 +63,11 @@ def draw_space_axes(
     
     # Use absolute space if space is None
     if space is None:
-        space = Space()
+        space = Space2D()
     
     # Use absolute space if reference_space is None
     if reference_space is None:
-        reference_space = Space()
+        reference_space = Space2D()
     
     # Get space origin and unit vectors in reference space
     origin = Point(np.array([0, 0]), space=space)
@@ -146,7 +146,7 @@ def draw_points(
     
     # Use absolute space if reference_space is None
     if reference_space is None:
-        reference_space = Space()
+        reference_space = Space2D()
     
     # Get point coordinates in reference space
     coords = [p.relative_to(reference_space).coords for p in points]

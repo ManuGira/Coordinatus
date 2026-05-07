@@ -1,7 +1,7 @@
 """Unit tests for the Space class."""
 
 import numpy as np
-from coordinatus.space import Space, create_space
+from coordinatus.space import Space, Space1D, Space2D, Space3D, Space4D, SpaceND, create_space
 from coordinatus.transforms import translate2D, rotate2D, scale2D, trs2D
 
 
@@ -27,6 +27,12 @@ class TestSpaceInit:
         assert child.parent is parent
         np.testing.assert_array_equal(child.transform, child_transform)
         np.testing.assert_array_equal(child.parent.transform, parent_transform)
+
+    def test_space_init_none_transform_raises(self):
+        """Test that passing None as transform raises ValueError."""
+        import pytest
+        with pytest.raises(ValueError, match="transform must be a numpy array"):
+            Space(transform=None)  # type: ignore[arg-type]
 
 
 class TestSpaceDimensions:
@@ -144,8 +150,8 @@ class TestSpaceEquality:
 
     def test_identity_spaces_equal(self):
         """Test that two identity spaces (no parent, identity transform) are equal."""
-        space1 = Space()  # Default is identity
-        space2 = Space()  # Another identity
+        space1 = Space2D()  # 2D identity
+        space2 = Space2D()  # Another 2D identity
         
         assert space1 == space2
         assert not (space1 != space2)
@@ -159,14 +165,14 @@ class TestSpaceEquality:
 
     def test_identity_and_non_identity_not_equal(self):
         """Test that identity space is not equal to non-identity space."""
-        identity_space = Space()
+        identity_space = Space2D()
         translated_space = Space(transform=translate2D(5, 3))
         
         assert identity_space != translated_space
 
     def test_spaces_with_parents_not_equal(self):
         """Test that spaces with parents are not equal (even if transforms are same)."""
-        parent = Space()
+        parent = Space2D()
         space1 = Space(transform=translate2D(5, 3), parent=parent)
         space2 = Space(transform=translate2D(5, 3), parent=parent)
         
@@ -175,7 +181,7 @@ class TestSpaceEquality:
 
     def test_space_not_equal_to_non_space(self):
         """Test that space is not equal to non-Space object."""
-        space = Space()
+        space = Space2D()
         
         assert space is not None
         assert space != 42
@@ -438,3 +444,94 @@ class TestCreateSpace:
         absolute_t = grandchild.compute_absolute_transform()
         expected = trs2D(10, 10, 0, 1, 1) @ trs2D(5, 0, np.pi / 2, 1, 1) @ trs2D(0, 0, 0, 2, 2)
         np.testing.assert_array_almost_equal(absolute_t, expected)
+
+
+class TestSpaceSubclasses:
+    """Tests for Space1D, Space2D, Space3D, Space4D, SpaceND subclasses."""
+
+    def test_space4d_has_identity_transform(self):
+        """Test that Space4D initialises with a 5x5 identity matrix."""
+        space = Space4D()
+        np.testing.assert_array_equal(space.transform, np.eye(5))
+
+    def test_space4d_dimensionality(self):
+        """Test that Space4D reports D_in == D_out == 4."""
+        space = Space4D()
+        assert space.D_in == 4
+        assert space.D_out == 4
+
+    def test_space4d_no_parent_by_default(self):
+        """Test that Space4D has no parent by default."""
+        space = Space4D()
+        assert space.parent is None
+
+    def test_space4d_with_parent(self):
+        """Test that Space4D accepts an optional parent."""
+        parent = Space4D()
+        child = Space4D(parent=parent)
+        assert child.parent is parent
+
+    def test_space4d_equality(self):
+        """Test that two independent Space4D instances are equal (both identity)."""
+        assert Space4D() == Space4D()
+
+    def test_space4d_is_space_instance(self):
+        """Test that Space4D is a subclass of Space."""
+        assert isinstance(Space4D(), Space)
+
+    def test_spacend_has_correct_identity_transform(self):
+        """Test that SpaceND(N) initialises with a (N+1)x(N+1) identity matrix."""
+        for n in [1, 2, 3, 4, 5, 10]:
+            space = SpaceND(n)
+            np.testing.assert_array_equal(space.transform, np.eye(n + 1))
+
+    def test_spacend_dimensionality(self):
+        """Test that SpaceND(N) reports D_in == D_out == N."""
+        for n in [1, 2, 3, 4, 5]:
+            space = SpaceND(n)
+            assert space.D_in == n
+            assert space.D_out == n
+
+    def test_spacend_no_parent_by_default(self):
+        """Test that SpaceND has no parent by default."""
+        assert SpaceND(3).parent is None
+
+    def test_spacend_with_parent(self):
+        """Test that SpaceND accepts an optional parent."""
+        parent = SpaceND(3)
+        child = SpaceND(3, parent=parent)
+        assert child.parent is parent
+
+    def test_spacend_equality(self):
+        """Test that two independent SpaceND(N) instances with the same N are equal."""
+        assert SpaceND(3) == SpaceND(3)
+
+    def test_spacend_different_dims_not_equal(self):
+        """Test that SpaceND instances with different N are not equal."""
+        assert SpaceND(2) != SpaceND(3)
+
+    def test_spacend_is_space_instance(self):
+        """Test that SpaceND is a subclass of Space."""
+        assert isinstance(SpaceND(2), Space)
+
+    def test_spacend_2_equivalent_to_space2d(self):
+        """Test that SpaceND(2) is equal to Space2D()."""
+        assert SpaceND(2) == Space2D()
+
+    def test_spacend_4_equivalent_to_space4d(self):
+        """Test that SpaceND(4) is equal to Space4D()."""
+        assert SpaceND(4) == Space4D()
+
+    def test_space1d_has_identity_transform(self):
+        """Test that Space1D initialises with a 2x2 identity matrix."""
+        space = Space1D()
+        np.testing.assert_array_equal(space.transform, np.eye(2))
+        assert space.D_in == 1
+        assert space.parent is None
+
+    def test_space3d_has_identity_transform(self):
+        """Test that Space3D initialises with a 4x4 identity matrix."""
+        space = Space3D()
+        np.testing.assert_array_equal(space.transform, np.eye(4))
+        assert space.D_in == 3
+        assert space.parent is None

@@ -19,6 +19,11 @@ from .dimension import (
     project_xyz_to_z,
 )
 
+def ts1D(tx: float, sx: float) -> np.ndarray:
+    """Creates a combined translation and scaling matrix for 1D transformations."""
+    T = translate([tx])
+    S = scale([sx])
+    return T @ S
 
 def trs2D(tx: float, ty: float, angle_rad: float, sx: float, sy: float) -> np.ndarray:
     """Creates a combined translation, rotation, and scaling matrix."""

@@ -28,7 +28,28 @@
 
 Ever needed to convert coordinates between different spaces?  *Coordinatus* makes it easy to work with nested coordinate systems—like transforming from a character's local space to world space, or from one object to another.
 
-> **Note:** Currently supports 2D Cartesian coordinates. Support for 3D, polar, and spherical coordinate systems is planned.
+**The core philosophy:** a bare `[x, y]` array is meaningless without knowing how its origin and axes are defined. In *Coordinatus*, every coordinate carries its space with it. This means that when you pass a `Point` or `Vector` to a function, you never need to pre-convert it—as long as both the coordinate's space and the function's expected space belong to the same hierarchy, the conversion is handled automatically.
+
+For example, converting a temperature across three unit systems is just a matter of defining the spaces:
+
+```python
+import numpy as np
+from coordinatus import Space1D, Point
+from coordinatus.transforms import ts1D
+
+# Kelvin is the 1D world space (absolute)
+kelvin = Space1D()
+
+# ts1D(tx, sx) maps x → sx·x + tx
+celsius    = Space(transform=ts1D(tx=273.15, sx=1),   parent=kelvin)   # C = K - 273.15
+fahrenheit = Space(transform=ts1D(tx=32,     sx=9/5), parent=celsius)  # F = C * 9/5 + 32
+
+boiling = Point([100.0], space=celsius)  # 100 °C
+in_fahrenheit = boiling.relative_to(fahrenheit)   # no manual formula needed
+
+print(f"{boiling.coords[0]:.1f} °C = {in_fahrenheit.coords[0]:.1f} °F")
+# 100.0 °C = 212.0 °F
+```
 
 ## Why Coordinatus?
 
@@ -67,11 +88,11 @@ This installs matplotlib for the `coordinatus.visualization` module.
 ## Quick Start
 
 ```python
-from coordinatus import Space, Point, create_space
+from coordinatus import Space2D, Point, create_space
 import numpy as np
 
 # Create a world space
-world = Space()
+world = Space2D()
 
 # Create a car space, positioned at (100, 50) in the world
 car = create_space(parent=world, tx=100, ty=50, angle_rad=np.pi/4)
@@ -80,15 +101,15 @@ car = create_space(parent=world, tx=100, ty=50, angle_rad=np.pi/4)
 wheel = create_space(parent=car, tx=10, ty=0)
 
 # A point at the wheel's center
-point_in_wheel = Point(x=0, y=0, space=wheel)
+point_in_wheel = Point([0, 0], space=wheel)
 
 # Convert to world coordinates
 point_in_world = point_in_wheel.to_absolute()
-print(f"Wheel center in world: ({point_in_world.x}, {point_in_world.y})")
+print(f"Wheel center in world: ({point_in_world.coords[0]}, {point_in_world.coords[1]})")
 
 # Convert between any two spaces
 point_in_car = point_in_wheel.relative_to(car)
-print(f"Wheel center in car space: ({point_in_car.x}, {point_in_car.y})")
+print(f"Wheel center in car space: ({point_in_car.coords[0]}, {point_in_car.coords[1]})")
 ```
 
 ## Core Concepts
@@ -106,12 +127,12 @@ from coordinatus import Point, Vector, Space, create_space
 space = create_space(parent=None, tx=10, ty=5)
 
 # Point gets translated
-point = Point(x=0, y=0, space=space)
-absolute = point.to_absolute()  # (10, 5)
+point = Point([0, 0], space=space)
+absolute = point.to_absolute()  # coords: [10, 5]
 
 # Vector does NOT get translated
-vector = Vector(x=1, y=0, space=space)
-absolute_vec = vector.to_absolute()  # (1, 0) - only rotation/scale applied
+vector = Vector([1, 0], space=space)
+absolute_vec = vector.to_absolute()  # coords: [1, 0] - only rotation/scale applied
 ```
 
 ### Coordinate Conversion
@@ -156,11 +177,14 @@ From Space 2's perspective, Space 2 is now at the origin with standard axes. The
 ### Creating Spaces
 
 ```python
-from coordinatus import Space, create_space
+from coordinatus import Space, Space2D, create_space
 import numpy as np
 
 # Manually with a transform matrix
 space = Space(transform=my_matrix, parent=parent_space)
+
+# Or start from a typed identity root
+root = Space2D()
 
 # Or use the convenient factory
 space = create_space(

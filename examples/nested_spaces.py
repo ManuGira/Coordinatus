@@ -4,7 +4,7 @@ Creates 4 nested spaces with the same TRS transformation applied at each level,
 showing how transformations accumulate through the hierarchy.
 """
 
-from coordinatus import Space, Point, create_space
+from coordinatus import Space2D, Point, create_space
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -13,7 +13,7 @@ def main():
     print("=== Nested Spaces Visualization ===\n")
     
     # Create root space
-    root = Space()
+    root = Space2D()
     
     # Create 4 nested spaces, each with the same TRS transform
     # trs2D(tx=1, ty=0, angle_rad=pi/4, sx=0.75, sy=0.75)

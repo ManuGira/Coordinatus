@@ -108,7 +108,11 @@ class Coordinate:
         """
         self.kind = kind
         self.coords = np.asarray(coords)
-        self.space = space if space is not None else Space()
+        if space is None:
+            D = self.coords.shape[0] if self.coords.ndim > 1 else len(self.coords)
+            self.space = Space(np.eye(D + 1))
+        else:
+            self.space = space
 
     @property
     def D(self) -> int:
@@ -282,7 +286,8 @@ class Coordinate:
         """
         absolute_transform = self.space.compute_absolute_transform()
         absolute_coords = transform_coordinate(absolute_transform, self.coords, self.kind)
-        return self._make_new(absolute_coords, space=Space())
+        D = absolute_coords.shape[0] if absolute_coords.ndim > 1 else len(absolute_coords)
+        return self._make_new(absolute_coords, space=Space(np.eye(D + 1)))
         
     def relative_to(self, target_space: Space) -> 'Coordinate':
         """Converts this coordinate to a different coordinate space.

@@ -3,7 +3,7 @@
 from unittest.mock import Mock
 import numpy as np
 
-from coordinatus import Space, Point, create_space
+from coordinatus import Space2D, Point, create_space
 from coordinatus.visualization import draw_space_axes, draw_points
 
 
@@ -13,7 +13,7 @@ class TestDrawSpaceAxes:
     def test_draws_origin(self):
         """Test that origin point is drawn."""
         ax = Mock()
-        space = Space()
+        space = Space2D()
         
         draw_space_axes(ax, space, color='blue', label='Test')
         
@@ -26,7 +26,7 @@ class TestDrawSpaceAxes:
     def test_draws_arrows_for_axes(self):
         """Test that x and y axis arrows are drawn."""
         ax = Mock()
-        space = Space()
+        space = Space2D()
         
         draw_space_axes(ax, space)
         
@@ -35,7 +35,7 @@ class TestDrawSpaceAxes:
     def test_draws_axis_labels(self):
         """Test that axis labels are drawn."""
         ax = Mock()
-        space = Space()
+        space = Space2D()
         
         draw_space_axes(ax, space, label='MySpace')
         
@@ -59,7 +59,7 @@ class TestDrawSpaceAxes:
         """Test that color is applied to all elements."""
         ax = Mock()
         
-        draw_space_axes(ax, Space(), color='red')
+        draw_space_axes(ax, Space2D(), color='red')
         
         # Check origin color
         assert ax.plot.call_args_list[0][1]['color'] == 'red'
@@ -75,7 +75,7 @@ class TestDrawPoints:
     def test_draws_single_point(self):
         """Test drawing a single point."""
         ax = Mock()
-        point = Point(np.array([1, 2]), space=Space())
+        point = Point(np.array([1, 2]), space=Space2D())
         
         draw_points(ax, [point], color='red')
         
@@ -92,7 +92,7 @@ class TestDrawPoints:
     def test_connects_multiple_points(self):
         """Test that multiple points are connected with lines."""
         ax = Mock()
-        space = Space()
+        space = Space2D()
         points = [
             Point(np.array([0, 0]), space=space),
             Point(np.array([1, 1]), space=space),
@@ -106,7 +106,7 @@ class TestDrawPoints:
     def test_no_connect_option(self):
         """Test that connect=False skips line drawing."""
         ax = Mock()
-        space = Space()
+        space = Space2D()
         points = [
             Point(np.array([0, 0]), space=space),
             Point(np.array([1, 1]), space=space),
@@ -120,7 +120,7 @@ class TestDrawPoints:
     def test_shows_labels(self):
         """Test that point labels are shown."""
         ax = Mock()
-        points = [Point(np.array([0, 0]), space=Space())]
+        points = [Point(np.array([0, 0]), space=Space2D())]
         
         draw_points(ax, points, label='P', show_labels=True)
         
@@ -130,7 +130,7 @@ class TestDrawPoints:
     def test_hides_labels(self):
         """Test that show_labels=False hides labels."""
         ax = Mock()
-        points = [Point(np.array([0, 0]), space=Space())]
+        points = [Point(np.array([0, 0]), space=Space2D())]
         
         draw_points(ax, points, show_labels=False)
         

@@ -2,7 +2,7 @@
 
 import numpy as np
 from coordinatus.transforms import (
-    translate2D, rotate2D, scale2D, shear2D, trs2D, trks2D,
+    translate2D, rotate2D, scale2D, shear2D, trs2D, trks2D, ts1D,
 )
 
 class TestTRS2D:
@@ -182,3 +182,40 @@ class TestTRKS2D:
         # Shape should be 3x3
         assert M.shape == (3, 3)
 
+
+class TestTS1D:
+    """Tests for the ts1D combined 1D translation-scale function."""
+
+    def test_ts1d_identity(self):
+        """Test ts1D with identity transformation (tx=0, sx=1)."""
+        M = ts1D(0, 1)
+        np.testing.assert_array_almost_equal(M, np.eye(2))
+
+    def test_ts1d_translation_only(self):
+        """Test ts1D with scaling=1 applies only translation."""
+        from coordinatus.transforms import translate
+        M = ts1D(5, 1)
+        np.testing.assert_array_almost_equal(M, translate([5]))
+
+    def test_ts1d_scale_only(self):
+        """Test ts1D with tx=0 applies only scaling."""
+        from coordinatus.transforms import scale
+        M = ts1D(0, 3)
+        np.testing.assert_array_almost_equal(M, scale([3]))
+
+    def test_ts1d_maps_x_to_sx_x_plus_tx(self):
+        """Test that ts1D(tx, sx) maps x -> sx*x + tx."""
+        M = ts1D(tx=10, sx=2)
+        result = M @ np.array([3, 1])
+        np.testing.assert_array_almost_equal(result, [2 * 3 + 10, 1])
+
+    def test_ts1d_matrix_shape(self):
+        """Test that ts1D returns a 2x2 matrix."""
+        assert ts1D(1, 2).shape == (2, 2)
+
+    def test_ts1d_order_matters(self):
+        """Test that ts1D applies scale first then translate (T @ S)."""
+        from coordinatus.transforms import translate, scale
+        M = ts1D(tx=3, sx=2)
+        expected = translate([3]) @ scale([2])
+        np.testing.assert_array_almost_equal(M, expected)
