@@ -1,8 +1,14 @@
-# Running Python Scripts with UV
+# Coordinatus — Copilot Instructions
+
+> **Before making any architectural decision, read the [Project Architecture](#project-architecture) section below.**
+> It contains the authoritative map of the project's modules, types, design rules,
+> and invariants. Do not propose or implement structural changes without consulting it first.
+
+---
+
+## Running Python Scripts with UV
 
 This project uses **`uv`** to manage Python scripts instead of the traditional `python` command.
-
-## Usage
 
 To run any Python script in this project, use:
 
@@ -15,48 +21,8 @@ uv run myscript.py
 python myscript.py
 ```
 
-## Project Architecture
-
-The Coordinatus package is designed to manage coordinate systems, transformations, and coordinate representations. Here's the core architecture:
-
-### Core Concepts
-
-1. **Coordinates**: Represented as points or vectors in a coordinate space
-   - **Points**: Positions in space affected by all transformations (translation, rotation, scaling)
-   - **Vectors**: Directions and magnitudes affected only by rotation and scaling (NOT translation)
-   - This distinction is captured in the `CoordinateKind` enum in `types.py`
-
-2. **Affine Transformations**: All transformations use homogeneous coordinate matrices
-   - 3x3 matrices for 2D transformations
-   - 4x4 matrices for 3D transformations
-   - Transformations are composed via matrix multiplication
-
-3. **Coordinate Spaces**: Hierarchical spaces that can be nested
-   - Each `Space` has a transformation relative to its parent
-   - Spaces form a scene-graph-like hierarchy
-   - Can compute absolute transformations from any space to the root
-
-### Main Modules
-
-- **`types.py`**: Defines `CoordinateKind` enum (POINT vs VECTOR)
-- **`coordinate.py`**: Coordinate classes and the `transform_coordinate()` function that applies transformations while respecting point/vector semantics
-- **`space.py`**: `Space` class representing hierarchical coordinate spaces
-- **`transforms/`**: Transformation matrix generation utilities:
-  - `translate.py`: Translation matrices (2D and 3D)
-  - `rotate.py`: Rotation matrices (rotate2D, rotate3Dx, rotate3Dy, rotate3Dz, rotate3D)
-  - `scale.py`: Scaling and shearing matrices
-  - `dimension.py`: Dimension reduction/augmentation and projection operations
-  - Convenience functions like `trs2D()` and `trks2D()` combine multiple transformations
-- **`visualization.py`**: Optional visualization support (only available if matplotlib is installed)
-
-### Design Patterns
-
-1. **Homogeneous Coordinates**: All transformations use homogeneous coordinate matrices for uniform handling of affine transformations
-2. **Matrix Composition**: Transformations are composed via matrix multiplication (e.g., `T @ R @ S`)
-3. **Semantic Type Distinction**: Points and vectors transform differently - this is enforced throughout the codebase
-4. **Lazy Transformation**: Spaces store relative transforms; absolute transforms are computed on-demand
-
 ## Project Structure
+
 Package source code is located in the `src/coordinatus` directory and examples in the `examples/` directory.
 To run a script located in the `examples/` directory, use:
 
@@ -66,8 +32,8 @@ uv run examples/example_script.py
 
 All tests are located in the `tests/` directory. The structure of the tests mirrors that of the `src/` directory. Test file names are prefixed with `test_`. For example, the test for `src/coordinatus/transforms/rotate.py` would be located at `tests/coordinatus/transforms/test_rotate.py`.
 
-
 ## Continuous Integration and Testing
+
 Tests are run using `uv`.
 
 Run individual test files like so:
@@ -81,7 +47,6 @@ To run all tests at once the command `uv run pytest tests` works but it is prefe
 ```
 It will run all tests, generate coverage reports, and perform linting checks.
 
-
 For any automation or AI agent execution, always use the `uv run` command format.
 
 ## Python Typing Style
@@ -92,4 +57,149 @@ Use `list[str]`, `dict[str, int]`, etc., for type annotations.
 ## Writing Style
 
 When denoting matrix or array dimensions, prefer the ASCII `x` over the Unicode multiplication sign: write `2x2` not `2×2`, `3x3` not `3×3`, etc.
+
+---
+
+## Project Architecture
+
+### Philosophy
+
+A coordinate is meaningless without its context. Every value in Coordinatus lives
+inside a `Space`, which describes *how that space relates to its parent*. Coordinates
+are never bare numbers — they are always bound to the space in which they are expressed.
+
+Spaces form a **scene-graph hierarchy**. Converting a coordinate from one space to
+another requires both spaces to share a common ancestor. If they do not, the conversion
+is undefined and raises a `ValueError`.
+
+### Package layout
+
+```
+src/coordinatus/
+├── __init__.py          # Public re-exports (Space*, Coordinate, Point, Vector, …)
+├── types.py             # CoordinateKind enum  (POINT | VECTOR)
+├── space.py             # Space hierarchy and factory helpers
+├── coordinate.py        # Coordinate base class + Point, Vector subclasses
+├── visualization.py     # Optional matplotlib helpers (requires extras)
+└── transforms/
+    ├── __init__.py      # Convenience composites: ts1D, trs2D, trks2D
+    ├── translate.py     # translate, translate1D, translate2D, translate3D
+    ├── rotate.py        # rotate2D, rotate3Dx, rotate3Dy, rotate3Dz, rotate3D
+    ├── scale.py         # scale, scale1D, scale2D, scale3D, shear2D
+    └── dimension.py     # reduce_dim, augment_dim, swap_axes, project_* helpers
+```
+
+### Key types and their responsibilities
+
+#### `types.py` — `CoordinateKind`
+
+A two-value enum: `POINT` or `VECTOR`.
+
+- **POINT** (weight = 1): position in space; affected by translation, rotation, and scaling.
+- **VECTOR** (weight = 0): direction/displacement; affected by rotation and scaling only.
+
+This distinction is applied by `transform_coordinate()` when building homogeneous coordinate vectors.
+
+#### `space.py` — `Space` and its subclasses
+
+`Space` wraps a single `(D+1)x(D+1)` homogeneous transform matrix and an optional reference to a parent `Space`.
+
+| Class      | Identity matrix | Typical use                  |
+|------------|-----------------|------------------------------|
+| `Space1D`  | `eye(2)`        | 1D number lines              |
+| `Space2D`  | `eye(3)`        | 2D plane root spaces         |
+| `Space3D`  | `eye(4)`        | 3D world root spaces         |
+| `Space4D`  | `eye(5)`        | 4D / relativistic uses       |
+| `SpaceND`  | `eye(N+1)`      | Arbitrary dimension N        |
+| `Space`    | explicit matrix | Child spaces with transforms |
+
+`Space(transform=None)` raises `ValueError` — always provide an explicit matrix or use a typed subclass.
+
+Key methods:
+
+- `get_root()` — walks up the parent chain; used to check for common ancestors.
+- `compute_absolute_transform()` — multiplies transforms from self up to the root.
+- `compute_relative_transform_to(target)` — raises `ValueError` if the two spaces have different roots; otherwise returns the combined matrix to go from self to target.
+
+`create_space(parent, tx, ty, angle_rad, sx, sy)` is a 2D factory that builds the transform via `trs2D` and returns a `Space`.
+
+#### `coordinate.py` — `Coordinate`, `Point`, `Vector`
+
+`Coordinate` stores:
+- `kind`: `CoordinateKind`
+- `coords`: `np.ndarray` (shape `(D,)` for a single point, `(D, N)` for a batch)
+- `space`: the `Space` in which `coords` are expressed
+
+If `space=None`, an identity space of the appropriate dimension is created automatically.
+
+`Point` and `Vector` are thin subclasses that fix `kind` and omit the `kind` argument from their constructors.
+
+Key methods:
+- `to_absolute()` — applies `compute_absolute_transform()` and returns coords in the root's identity space.
+- `relative_to(target_space)` — calls `compute_relative_transform_to` on the spaces; raises `ValueError` if no common ancestor exists.
+
+`transform_coordinate(transform, coordinates, kind)` is the low-level function; it converts to homogeneous coordinates, applies the matrix, and converts back.
+
+Arithmetic operators (`+`, `-`, `*`, `/`, unary `-`) operate element-wise and require both operands to be in the same space (checked via `Space.__eq__`).
+
+#### `transforms/` — matrix factories
+
+All functions return plain `np.ndarray` homogeneous matrices. They never create or reference a `Space`.
+
+| Function / module    | What it produces                         |
+|----------------------|------------------------------------------|
+| `translate`          | Generic N-D translation                  |
+| `translate1D/2D/3D`  | Shorthand for 1/2/3 dimensions           |
+| `rotate2D`           | Counter-clockwise rotation in the plane  |
+| `rotate3Dx/y/z`      | Rotation around a 3D axis               |
+| `rotate3D`           | Rotation around an arbitrary 3D axis    |
+| `scale`              | Generic N-D scaling                      |
+| `scale1D/2D/3D`      | Shorthand for 1/2/3 dimensions           |
+| `shear2D`            | 2D shear (kx, ky)                        |
+| `swap_axes`          | Axis permutation                         |
+| `reduce_dim`         | Drop a dimension from homogeneous coords |
+| `augment_dim`        | Add a dimension to homogeneous coords    |
+| `project_*`          | Various orthographic projections         |
+
+Composite helpers (in `transforms/__init__.py`):
+
+| Helper    | Composition     | Parameters                               |
+|-----------|-----------------|------------------------------------------|
+| `ts1D`    | `T @ S`         | `tx`, `sx`                               |
+| `trs2D`   | `T @ R @ S`     | `tx`, `ty`, `angle_rad`, `sx`, `sy`      |
+| `trks2D`  | `T @ R @ K @ S` | adds `kx`, `ky` shear on top of `trs2D` |
+
+#### `visualization.py` — optional matplotlib helpers
+
+Only importable when `matplotlib` is installed (extras: `coordinatus[plotting]`).
+
+- `draw_space_axes(ax, space, reference_space, …)` — draws the origin and axis arrows of `space` as seen from `reference_space`. When `reference_space=None`, coordinates are expressed in absolute space via `to_absolute()`.
+- `draw_points(ax, points, reference_space, …)` — plots a list of `Point` objects with optional connecting lines and labels. Same fallback to `to_absolute()`.
+
+### Dimensionality rules
+
+| Matrix size   | Affine dimension | Corresponding class |
+|---------------|------------------|---------------------|
+| 2x2           | 1D               | `Space1D`           |
+| 3x3           | 2D               | `Space2D`           |
+| 4x4           | 3D               | `Space3D`           |
+| 5x5           | 4D               | `Space4D`           |
+| (N+1)x(N+1)   | ND               | `SpaceND(N)`        |
+
+`Space.D_in` = number of input dimensions = `transform.shape[1] - 1`.
+`Space.D_out` = number of output dimensions = `transform.shape[0] - 1`.
+These differ only for dimension-changing projections.
+
+### Common ancestor rule
+
+`relative_to()` and `compute_relative_transform_to()` compare roots with `is` (identity
+check, not equality). Two independent root spaces — even if both are `Space2D()` — are
+considered unrelated and conversion raises:
+
+```
+ValueError: Cannot convert between unrelated coordinate spaces: the two spaces
+do not share a common ancestor. ...
+```
+
+The fix is always to connect both hierarchies under a single shared root.
 
