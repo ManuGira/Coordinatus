@@ -2,8 +2,62 @@
 
 import numpy as np
 from coordinatus.transforms import (
-    scale, scale2D, scale3D, shear2D,
+    scale, scale1D, scale2D, scale3D, shear2D,
 )
+
+class TestScale1D:
+    """Tests for the scale1D function."""
+
+    def test_scale_identity(self):
+        """Test scaling matrix with unit scale."""
+        S = scale1D(1)
+        expected = np.eye(2)
+        np.testing.assert_array_almost_equal(S, expected)
+
+    def test_scale_uniform(self):
+        """Test uniform scaling."""
+        S = scale1D(3)
+        expected = np.array([[3, 0],
+                             [0, 1]])
+        np.testing.assert_array_almost_equal(S, expected)
+
+    def test_scale_fractional(self):
+        """Test scaling with a fractional value."""
+        S = scale1D(0.5)
+        expected = np.array([[0.5, 0],
+                             [0,   1]])
+        np.testing.assert_array_almost_equal(S, expected)
+
+    def test_scale_zero(self):
+        """Test scaling to zero."""
+        S = scale1D(0)
+        expected = np.array([[0, 0],
+                             [0, 1]])
+        np.testing.assert_array_almost_equal(S, expected)
+
+    def test_scale_negative(self):
+        """Test negative scaling (reflection)."""
+        S = scale1D(-2)
+        expected = np.array([[-2, 0],
+                              [0,  1]])
+        np.testing.assert_array_almost_equal(S, expected)
+
+    def test_scale_point(self):
+        """Test that the matrix correctly scales a point."""
+        S = scale1D(4)
+        point = np.array([3, 1])  # x=3, w=1
+        result = S @ point
+        expected = np.array([12, 1])
+        np.testing.assert_array_almost_equal(result, expected)
+
+    def test_scale_vector(self):
+        """Test that the matrix correctly scales a vector (w=0)."""
+        S = scale1D(5)
+        vector = np.array([2, 0])  # x=2, w=0
+        result = S @ vector
+        expected = np.array([10, 0])
+        np.testing.assert_array_almost_equal(result, expected)
+
 
 class TestScale2D:
     """Tests for the scale2D function."""

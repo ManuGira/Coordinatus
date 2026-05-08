@@ -21,6 +21,20 @@ def translate(translation_vector: ArrayLike) -> np.ndarray:
     T[:-1, -1] = translation_vector
     return T
 
+def translate1D(tx: float) -> np.ndarray:
+    """
+    Creates a 1D translation matrix.
+    
+    Args:
+        tx: Translation offset along the x-axis
+    
+    Returns:
+        A 2x2 translation matrix in homogeneous coordinates:
+            [[1, tx]
+             [0, 1]]
+    """
+    return translate([tx])
+
 def translate2D(tx: float, ty: float) -> np.ndarray:
     """
     Creates a 2D translation matrix.
