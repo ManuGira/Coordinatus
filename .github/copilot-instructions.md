@@ -151,8 +151,8 @@ All functions return plain `np.ndarray` homogeneous matrices. They never create 
 | `translate`          | Generic N-D translation                  |
 | `translate1D/2D/3D`  | Shorthand for 1/2/3 dimensions           |
 | `rotate2D`           | Counter-clockwise rotation in the plane  |
-| `rotate3Dx/y/z`      | Rotation around a 3D axis               |
-| `rotate3D`           | Rotation around an arbitrary 3D axis    |
+| `rotate3Dx/y/z`      | Rotation around a 3D axis                |
+| `rotate3D`           | Rotation around an arbitrary 3D axis     |
 | `scale`              | Generic N-D scaling                      |
 | `scale1D/2D/3D`      | Shorthand for 1/2/3 dimensions           |
 | `shear2D`            | 2D shear (kx, ky)                        |
@@ -167,7 +167,7 @@ Composite helpers (in `transforms/__init__.py`):
 |-----------|-----------------|------------------------------------------|
 | `ts1D`    | `T @ S`         | `tx`, `sx`                               |
 | `trs2D`   | `T @ R @ S`     | `tx`, `ty`, `angle_rad`, `sx`, `sy`      |
-| `trks2D`  | `T @ R @ K @ S` | adds `kx`, `ky` shear on top of `trs2D` |
+| `trks2D`  | `T @ R @ K @ S` | adds `kx`, `ky` shear on top of `trs2D`  |
 
 #### `visualization.py` — optional matplotlib helpers
 
