@@ -197,8 +197,22 @@ class Space:
                 "do not share a common ancestor. Ensure both spaces belong to the "
                 "same coordinate hierarchy."
             )
-        inv_transform = np.linalg.inv(target_space.compute_absolute_transform())
-        return inv_transform @ self.compute_absolute_transform()
+        lca = _find_lca(self, target_space)
+
+        # Forward path: self → LCA (multiply transforms going upward)
+        T_forward = np.eye(self.D_in + 1)
+        node: Optional[Space] = self
+        while node is not lca:
+            T_forward = node.transform @ T_forward
+            node = node.parent
+
+        # Backward path: LCA → target (invert each step going downward)
+        path_down = _path_from(lca, target_space)
+        T_backward = np.eye(lca.D_in + 1)
+        for step in path_down:
+            T_backward = _invert_step(step) @ T_backward
+
+        return T_backward @ T_forward
 
 
 class Space1D(Space):
@@ -265,6 +279,26 @@ class SpaceND(Space):
         super().__init__(transform=np.eye(N + 1), parent=parent)
 
 
+class ProjectionSpace(Space):
+    """A Space whose transform reduces dimensionality.
+
+    The transform stored in Space.transform is the pseudo-inverse of
+    projection_matrix, used when traversing upward out of this space
+    (child → parent direction). The projection_matrix attribute is used
+    when traversing downward into this space (parent → child direction).
+
+    Args:
+        projection_matrix: The (D_out+1) x (D_in+1) homogeneous matrix that maps
+            FROM parent coordinates TO this space's lower-dimensional coordinates.
+            For a 3D → 2D projection: a 3x4 matrix.
+        parent: The higher-dimensional parent space.
+    """
+    def __init__(self, projection_matrix: np.ndarray, parent: Space):
+        self.projection_matrix = projection_matrix
+        pseudo_inv = np.linalg.pinv(projection_matrix)
+        super().__init__(transform=pseudo_inv, parent=parent)
+
+
 def create_space(parent: Optional[Space]=None, tx: float=0.0, ty: float=0.0, angle_rad: float=0.0, sx: float=1.0, sy: float=1.0) -> Space:
     """Factory function to create a coordinate space using TRS (Translation-Rotation-Scale) parameters.
     
@@ -292,3 +326,48 @@ def create_space(parent: Optional[Space]=None, tx: float=0.0, ty: float=0.0, ang
     """
     transform = trs2D(tx, ty, angle_rad, sx, sy)
     return Space(transform=transform, parent=parent)
+
+
+def _find_lca(a: Space, b: Space) -> Space:
+    """Return the Lowest Common Ancestor of two spaces in the same hierarchy."""
+    ancestors_a: set[int] = set()
+    node: Optional[Space] = a
+    while node is not None:
+        ancestors_a.add(id(node))
+        node = node.parent
+    node = b
+    while node is not None:
+        if id(node) in ancestors_a:
+            return node
+        node = node.parent
+    raise ValueError("Cannot find LCA: spaces do not share a common ancestor.")
+
+
+def _path_from(ancestor: Space, descendant: Space) -> list[Space]:
+    """Return ordered list of spaces [child_of_ancestor, ..., descendant].
+
+    Returns an empty list if ancestor is descendant.
+    """
+    path: list[Space] = []
+    node: Optional[Space] = descendant
+    while node is not ancestor:
+        path.append(node)  # type: ignore[arg-type]
+        node = node.parent  # type: ignore[assignment]
+    path.reverse()
+    return path
+
+
+def _invert_step(node: Space) -> np.ndarray:
+    """Return the matrix that reverses a single upward step (parent → child).
+
+    For a ProjectionSpace, returns projection_matrix (the forward projection).
+    For a standard invertible space, returns the matrix inverse.
+    Raises ValueError for non-square, non-ProjectionSpace transforms.
+    """
+    if isinstance(node, ProjectionSpace):
+        return node.projection_matrix
+    if node.transform.shape[0] == node.transform.shape[1]:
+        return np.linalg.inv(node.transform)
+    raise ValueError(
+        f"Cannot invert non-square, non-ProjectionSpace transform with shape {node.transform.shape}"
+    )

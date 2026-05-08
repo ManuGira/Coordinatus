@@ -2,7 +2,7 @@
 
 import numpy as np
 from coordinatus.coordinate import Coordinate, Point, Vector, transform_coordinate
-from coordinatus.space import Space
+from coordinatus.space import Space, Space3D, ProjectionSpace
 from coordinatus.types import CoordinateKind
 from coordinatus.transforms import translate2D, rotate2D, scale2D
 from coordinatus.transforms import project_xyz_to_xy, project_xy_to_x
@@ -1143,6 +1143,90 @@ class TestTypePreservation:
         
         assert isinstance(result, Vector), f"Expected Vector but got {type(result)}"
         np.testing.assert_array_almost_equal(result.coords, [4, 6])
+
+
+class TestCoordinateRelativeToProjection:
+    """Tests for Coordinate.relative_to() through a ProjectionSpace in the hierarchy."""
+
+    def _make_scene(self):
+        """Return (world, screen) where screen is a 3D→2D ProjectionSpace."""
+        world = Space3D()
+        proj = project_xyz_to_xy()
+        screen = ProjectionSpace(projection_matrix=proj, parent=world)
+        return world, screen
+
+    def test_3d_point_relative_to_screen_is_2d(self):
+        """A 3D Point in world converted to screen yields a 2D Point."""
+        world, screen = self._make_scene()
+        pt = Point(coords=np.array([3.0, 5.0, 7.0]), space=world)
+        result = pt.relative_to(screen)
+        assert result.coords.shape == (2,), (
+            f"Expected 2D result, got shape {result.coords.shape}"
+        )
+
+    def test_3d_point_relative_to_screen_values(self):
+        """A 3D Point projected onto screen retains only the x, y components."""
+        world, screen = self._make_scene()
+        pt = Point(coords=np.array([3.0, 5.0, 7.0]), space=world)
+        result = pt.relative_to(screen)
+        np.testing.assert_array_almost_equal(result.coords, [3.0, 5.0])
+
+    def test_result_is_in_screen_space(self):
+        """The returned coordinate's space is the screen space."""
+        world, screen = self._make_scene()
+        pt = Point(coords=np.array([1.0, 2.0, 3.0]), space=world)
+        result = pt.relative_to(screen)
+        assert result.space is screen
+
+    def test_result_preserves_point_type(self):
+        """relative_to returns a Point when called on a Point."""
+        world, screen = self._make_scene()
+        pt = Point(coords=np.array([1.0, 2.0, 3.0]), space=world)
+        result = pt.relative_to(screen)
+        assert isinstance(result, Point)
+
+    def test_2d_point_relative_to_world_via_pseudo_inverse(self):
+        """A 2D screen Point converted back to world uses the pseudo-inverse.
+
+        This is a least-squares back-projection, not an exact inverse.
+        The recovered 3D point lies on the back-projection ray foot.
+        """
+        world, screen = self._make_scene()
+        pt_2d = Point(coords=np.array([3.0, 5.0]), space=screen)
+        result = pt_2d.relative_to(world)
+        assert result.coords.shape == (3,), (
+            f"Expected 3D result, got shape {result.coords.shape}"
+        )
+
+    def test_batch_3d_points_projected_to_screen(self):
+        """Batch of 3D points (DxN) projected to screen gives (2xN) result."""
+        world, screen = self._make_scene()
+        coords = np.array([
+            [1.0, 2.0, 3.0],  # x values
+            [4.0, 5.0, 6.0],  # y values
+            [7.0, 8.0, 9.0],  # z values
+        ])
+        pts = Point(coords=coords, space=world)
+        result = pts.relative_to(screen)
+        assert result.coords.shape == (2, 3), (
+            f"Expected (2, 3), got {result.coords.shape}"
+        )
+        np.testing.assert_array_almost_equal(result.coords[0], [1.0, 2.0, 3.0])
+        np.testing.assert_array_almost_equal(result.coords[1], [4.0, 5.0, 6.0])
+
+    def test_3d_point_in_translated_child_projected_to_screen(self):
+        """3D point in a translated child of world is correctly projected to screen."""
+        world = Space3D()
+        proj = project_xyz_to_xy()
+        screen = ProjectionSpace(projection_matrix=proj, parent=world)
+        # A child space offset by (10, 0, 0) in world
+        from coordinatus.transforms.translate import translate3D
+        child = Space(transform=translate3D(10, 0, 0), parent=world)
+        pt = Point(coords=np.array([0.0, 2.0, 3.0]), space=child)
+        result = pt.relative_to(screen)
+        # child origin in world is (10, 0, 0); point is child's (0, 2, 3) → world (10, 2, 3)
+        # projected to screen: (10, 2)
+        np.testing.assert_array_almost_equal(result.coords, [10.0, 2.0])
 
     def test_point_multiplication_preserves_type(self):
         """Test that Point * scalar returns a Point instance."""

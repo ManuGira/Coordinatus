@@ -15,7 +15,7 @@ been fixed in commit `777501a`.
 
 ## What changes and where
 
-### 1. `coordinate.py` — `transform_coordinate` (already fixed)
+### 1. `coordinate.py` — `transform_coordinate`
 
 **Status: done.**  
 Slices output with `transform.shape[0] - 1` (D_out) instead of D.
@@ -24,100 +24,41 @@ Slices output with `transform.shape[0] - 1` (D_out) instead of D.
 
 ### 2. `space.py` — replace `compute_relative_transform_to` with LCA traversal
 
-**Current implementation** (broken for projections):
-```python
-inv_transform = np.linalg.inv(target_space.compute_absolute_transform())
-return inv_transform @ self.compute_absolute_transform()
-```
-This assumes both absolute transforms are square and invertible. It fails whenever
-a `ProjectionSpace` sits on the path to the target's root (non-square absolute).
+**Status: done.**  
+Replaced the old `inv(absolute(target)) @ absolute(self)` body with an LCA-based path
+traversal that handles non-square (projection) transforms correctly.
 
-**New implementation: LCA-based path multiplication**
+The new body calls `_find_lca`, builds the forward path (self → LCA) by multiplying
+`node.transform` upward, then the backward path (LCA → target) by calling `_invert_step`
+on each node and multiplying downward.
 
-Replace `compute_relative_transform_to` with:
+Helpers added (module-private, `space.py`):
 
-```python
-def compute_relative_transform_to(self, target_space: 'Space') -> np.ndarray:
-    if self.get_root() is not target_space.get_root():
-        raise ValueError(...)
-
-    lca = _find_lca(self, target_space)
-
-    # Forward path: self → LCA (multiply transforms going upward)
-    T_forward = np.eye(self.D_in + 1)
-    node = self
-    while node is not lca:
-        T_forward = node.transform @ T_forward
-        node = node.parent
-
-    # Backward path: LCA → target (invert each step going downward)
-    path_down = _path_from(lca, target_space)   # ordered [child_of_lca, ..., target]
-    T_backward = np.eye(lca.D_out + 1)          # identity at LCA dimension
-    for node in path_down:
-        T_backward = _invert_step(node) @ T_backward
-
-    return T_backward @ T_forward
-```
-
-**Helpers to add (module-private)**:
-
-```python
-def _find_lca(a: Space, b: Space) -> Space:
-    """Return the Lowest Common Ancestor of two spaces in the same hierarchy."""
-
-def _path_from(ancestor: Space, descendant: Space) -> list[Space]:
-    """Return the ordered list of spaces [child_of_ancestor, ..., descendant]."""
-
-def _invert_step(node: Space) -> np.ndarray:
-    """Return the matrix that reverses a single upward step.
-    Raises ValueError for non-invertible, non-ProjectionSpace steps."""
-```
-
-**`_invert_step` logic**:
-- If `node` is a `ProjectionSpace`: return `node.projection_matrix` (the exact forward
-  projection; going "down" into the ProjectionSpace means applying the projection)
-- Else if `node.transform` is square: return `np.linalg.inv(node.transform)`
-- Else: raise `ValueError("Cannot invert non-square, non-ProjectionSpace transform")`
+- `_find_lca(a, b)` — walks ancestor sets to find the Lowest Common Ancestor; raises
+  `ValueError` for unrelated trees.
+- `_path_from(ancestor, descendant)` — returns `[child_of_ancestor, …, descendant]`;
+  returns `[]` when `ancestor is descendant`.
+- `_invert_step(node)` — returns `node.projection_matrix` for `ProjectionSpace` nodes,
+  `np.linalg.inv(node.transform)` for square transforms, or raises `ValueError` for
+  non-square non-`ProjectionSpace` nodes.
 
 ---
 
 ### 3. `space.py` — add `ProjectionSpace` class
 
-```python
-class ProjectionSpace(Space):
-    """A Space whose transform reduces dimensionality.
+**Status: done.**  
+`ProjectionSpace(projection_matrix, parent)` stores `projection_matrix` (the
+`(D_out+1) × (D_in+1)` matrix mapping FROM parent TO child) and saves its pseudo-inverse
+as `self.transform`, so `compute_absolute_transform()` keeps working by chaining
+matrices upward unchanged.
 
-    The transform stored in `Space.transform` is the pseudo-inverse (D_in x D_out+1),
-    used when traversing *upward* out of this space (child → parent direction).
-    The `projection_matrix` attribute (D_out+1 x D_in+1) is used when traversing
-    *downward* into this space (parent → child direction).
-
-    Args:
-        projection_matrix: The (D_out+1) x (D_in+1) homogeneous matrix that maps
-            FROM parent coordinates TO this space's lower-dimensional coordinates.
-            For a 3D → 2D camera: a 3x4 matrix.
-        parent: The higher-dimensional parent space.
-    """
-    def __init__(self, projection_matrix: np.ndarray, parent: Space):
-        self.projection_matrix = projection_matrix
-        pseudo_inv = np.linalg.pinv(projection_matrix)
-        super().__init__(transform=pseudo_inv, parent=parent)
-```
-
-The pseudo-inverse stored as `self.transform` allows `compute_absolute_transform()`
-to keep working by chaining matrices upward. The pseudo-inverse is the "best
-least-squares inverse" of a non-square matrix.
-
-**Note on reprojection**: `pseudo_inv @ projection_matrix ≈ I` (identity in the
-higher-dimensional space), so chaining `pseudo_inv` for the backward traversal
-approximates the back-projection ray's foot. For exact back-projection (ray, or depth-
-parameterised) callers should use the dedicated methods on `ProjectionSpace` (see
-section 5 below).
+`D_in` == child dimension, `D_out` == parent dimension.
 
 ---
 
-### 4. `space.py` — `get_root` / `compute_absolute_transform` (no changes needed)
+### 4. `space.py` — `get_root` / `compute_absolute_transform`
 
+**Status: no changes needed.**  
 These already work by chaining `node.transform` upward. `ProjectionSpace.transform`
 is the pseudo-inverse; the chain still produces a matrix at each level. No changes.
 
@@ -125,7 +66,8 @@ is the pseudo-inverse; the chain still produces a matrix at each level. No chang
 
 ### 5. `space.py` — back-projection helpers on `ProjectionSpace`
 
-Two optional methods on `ProjectionSpace` for callers that need the inverse direction:
+**Status: deferred.**  
+Two optional methods for callers that need the exact inverse direction:
 
 ```python
 def unproject_with_depth(self, coord: 'Coordinate', depth: float) -> 'Coordinate':
@@ -144,7 +86,9 @@ def ray_through(self, coord: 'Coordinate') -> 'Ray':
 
 ---
 
-### 6. New `Ray` data class (optional, new file or in `coordinate.py`)
+### 6. New `Ray` data class
+
+**Status: deferred.**
 
 ```python
 @dataclass
@@ -154,19 +98,16 @@ class Ray:
     direction: Vector
 ```
 
-Used by `ProjectionSpace.ray_through()`. Can be deferred to a later PR if not needed
-immediately.
+Used by `ProjectionSpace.ray_through()`. Can be added in a later PR.
 
 ---
 
 ### 7. `__init__.py` — public re-exports
 
-Add to `src/coordinatus/__init__.py`:
-```python
-from .space import ProjectionSpace
-```
+**Status: done.**  
+`ProjectionSpace` added to `src/coordinatus/__init__.py`.
 
-If `Ray` is added:
+If `Ray` is added later:
 ```python
 from .coordinate import Ray
 ```
@@ -175,6 +116,7 @@ from .coordinate import Ray
 
 ### 8. `transforms/dimension.py` — no changes needed
 
+**Status: done (no changes required).**  
 The existing `project_xyz_to_xy()` etc. already produce the correct homogeneous matrices
 and are used directly as the `projection_matrix` argument to `ProjectionSpace`.
 
@@ -182,60 +124,69 @@ and are used directly as the `projection_matrix` argument to `ProjectionSpace`.
 
 ## Test plan
 
-All new tests go in the existing test files following the existing conventions.
+All new tests live in the existing test files following the existing conventions.
 
-### `tests/coordinatus/test_space.py`
+### `tests/coordinatus/test_space.py` — new classes
 
-**`TestFindLCA`**
+**`TestFindLCA`** ✓
 - LCA of two siblings with a common direct parent
 - LCA when one node is the ancestor of the other
+- LCA of a deeper ancestor (two levels up)
 - LCA of a node with itself
+- LCA of two cousins (sharing a grandparent)
 - Raises `ValueError` for unrelated trees
 
-**`TestPathFrom`**
+**`TestPathFrom`** ✓
 - Direct child path (one step)
-- Deep path (multiple steps)
+- Two-step path (grandparent → grandchild)
+- Deep path (multiple steps, order verified)
 - Path to self is empty list
 
-**`TestInvertStep`**
+**`TestInvertStep`** ✓
 - Square transform → returns matrix inverse
 - `ProjectionSpace` → returns `projection_matrix` (not pseudo-inverse)
 - Non-square, non-`ProjectionSpace` → raises `ValueError`
 
-**`TestComputeRelativeTransformToWithProjection`** (replaces implicit coverage)
-- `space_a.compute_relative_transform_to(space_b)` for two siblings: same result as before (no regression)
-- `3d_world.compute_relative_transform_to(projection_space)` → applies the projection matrix
-- `projection_space.compute_relative_transform_to(3d_world)` → applies pseudo-inverse
+**`TestProjectionSpace`** ✓
+- `ProjectionSpace(proj_3x4, parent)` stores `projection_matrix` correctly
+- `D_in` == 2, `D_out` == 3 for a 3D→2D projection
+- `transform` is the pseudo-inverse of `projection_matrix`
+- Parent is correctly stored
+- Is a `Space` instance
+- `compute_absolute_transform()` chains correctly
 
-**`TestProjectionSpace`**
-- `ProjectionSpace(proj_3x4, parent=camera)` stores `projection_matrix` correctly
-- `D_in` == 3, `D_out` == 2
-- `compute_absolute_transform()` gives the correct chained matrix
+**`TestComputeRelativeTransformToWithProjection`** ✓
+- Two siblings → same result as before (regression guard)
+- `world.compute_relative_transform_to(screen)` → applies `projection_matrix`
+- `screen.compute_relative_transform_to(world)` → applies pseudo-inverse
+- Full scene-graph: 3D point projected through homogeneous transform gives correct xy
+- Sibling of a `ProjectionSpace` converts correctly via the LCA path
 
-### `tests/coordinatus/test_coordinate.py`
+### `tests/coordinatus/test_coordinate.py` — new class
 
-**`TestCoordinateRelativeToProjection`**
-- `Point([x,y,z], space=world).relative_to(screen)` → 2D Point
-- Result values match direct matrix multiplication
-- `Point` in 2D screen → `relative_to(world)` → 3D Point via pseudo-inverse (add comment that this is least-squares, not exact)
+**`TestCoordinateRelativeToProjection`** ✓
+- `Point([x,y,z], space=world).relative_to(screen)` → 2D Point with correct shape
+- Result values match `project_xyz_to_xy()` applied directly
+- Returned coordinate's space is `screen`
+- `relative_to` preserves `Point` type
+- `Point` in 2D screen → `relative_to(world)` → 3D Point via pseudo-inverse
+  (least-squares back-projection, not exact)
+- Batch of 3D points projected to screen gives `(2, N)` result with correct values
+- 3D point in a translated child of world is correctly projected to screen
 
-**`TestCoordinateToAbsoluteProjection`**  
-(already partially covered by the `test_projection_3d_to_2d_output_shape_via_to_absolute` test
-added in the bug-fix step; extend with a full scene-graph scenario)
+### `tests/coordinatus/test_space.py` — regression guard ✓
 
-### `tests/coordinatus/test_space.py` — regression guard
-
-Run existing `TestComputeRelativeTransformTo` tests unchanged; they must all still pass.
+Existing `TestComputeRelativeTransformTo` tests all pass unchanged.
 
 ---
 
 ## Implementation order
 
-1. Add `_find_lca`, `_path_from`, `_invert_step` helpers (private) to `space.py` — with unit tests
-2. Replace `compute_relative_transform_to` body with LCA traversal — verify all existing tests still pass
-3. Add `ProjectionSpace` class to `space.py` — with unit tests
-4. Add `ProjectionSpace` to `__init__.py` public API
-5. (Optional) Add `unproject_with_depth` and `Ray` / `ray_through`
+1. ✓ Add `_find_lca`, `_path_from`, `_invert_step` helpers to `space.py` — with unit tests
+2. ✓ Replace `compute_relative_transform_to` body with LCA traversal — all existing tests pass
+3. ✓ Add `ProjectionSpace` class to `space.py` — with unit tests
+4. ✓ Add `ProjectionSpace` to `__init__.py` public API
+5. ⬜ (Optional) Add `unproject_with_depth` and `Ray` / `ray_through`
 
 ---
 
@@ -243,6 +194,6 @@ Run existing `TestComputeRelativeTransformTo` tests unchanged; they must all sti
 
 - All existing `Space`, `Coordinate`, `Point`, `Vector` usage is unchanged.
 - `compute_relative_transform_to` for two same-dimensional spaces produces the same
-  result as before (the LCA path reduces to the current `inv(absolute(target)) @ absolute(self)` 
+  result as before (the LCA path reduces to the old `inv(absolute(target)) @ absolute(self)`
   formula).
 - The `transform_coordinate` fix (already committed) is a no-op for square matrices.
