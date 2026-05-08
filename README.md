@@ -228,6 +228,21 @@ plt.show()
 
 **Note:** Requires `uv add coordinatus[plotting]`
 
+## Notebooks
+
+The [`notebooks/`](notebooks/) folder contains interactive Jupyter notebooks with embedded outputs — plots render directly on GitHub:
+
+- [01_getting_started.ipynb](notebooks/01_getting_started.ipynb) — Points vs Vectors, hierarchical spaces, temperature unit conversion
+- [02_nested_spaces.ipynb](notebooks/02_nested_spaces.ipynb) — Accumulating TRS transforms through nested spaces
+- [03_space_visualization.ipynb](notebooks/03_space_visualization.ipynb) — The same geometry seen from different reference frames
+
+To run the notebooks locally, install the dev dependencies and launch Jupyter:
+
+```bash
+uv sync --group dev
+uv run jupyter notebook
+```
+
 ## Examples
 
 Check out the [`examples/`](examples/) folder for complete, runnable examples:
