@@ -124,6 +124,24 @@ class Space:
         """Check if two spaces are not equal."""
         return not self.__eq__(other)
 
+    def get_root(self) -> 'Space':
+        """Returns the root (topmost) space in this space's hierarchy.
+        
+        Walks up the parent chain until reaching a space with no parent.
+        
+        Returns:
+            The root Space of this hierarchy.
+        
+        Examples:
+            >>> root = Space2D()
+            >>> child = Space(transform=translate2D(5, 3), parent=root)
+            >>> child.get_root() is root
+            True
+        """
+        if self.parent is None:
+            return self
+        return self.parent.get_root()
+
     def compute_absolute_transform(self) -> np.ndarray:
         """Computes the cumulative transformation matrix from this space to absolute space.
         
@@ -153,19 +171,32 @@ class Space:
         1. Transforming from this space to absolute space
         2. Transforming from absolute space to the target space
         
+        Both spaces must belong to the same coordinate hierarchy (share a common root).
+        If they do not, a ValueError is raised — converting between unrelated coordinate
+        spaces is undefined.
+        
         Args:
             target_space: The destination coordinate space.
         
         Returns:
-            3x3 transformation matrix that converts coordinates from this space
-            to the target space.
+            Transformation matrix that converts coordinates from this space to the target space.
+        
+        Raises:
+            ValueError: If the two spaces do not share a common ancestor.
         
         Examples:
-            >>> space_a = Space(transform=translate2D(5, 0))
-            >>> space_b = Space(transform=translate2D(0, 3))
+            >>> root = Space2D()
+            >>> space_a = Space(transform=translate2D(5, 0), parent=root)
+            >>> space_b = Space(transform=translate2D(0, 3), parent=root)
             >>> convert_t = space_a.compute_relative_transform_to(space_b)
             >>> # Use convert_t to express space_a coordinates in space_b
         """
+        if self.get_root() is not target_space.get_root():
+            raise ValueError(
+                "Cannot convert between unrelated coordinate spaces: the two spaces "
+                "do not share a common ancestor. Ensure both spaces belong to the "
+                "same coordinate hierarchy."
+            )
         inv_transform = np.linalg.inv(target_space.compute_absolute_transform())
         return inv_transform @ self.compute_absolute_transform()
 

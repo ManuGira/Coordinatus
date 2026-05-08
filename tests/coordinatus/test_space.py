@@ -189,6 +189,37 @@ class TestSpaceEquality:
         assert space != np.eye(3)
 
 
+class TestGetRoot:
+    """Tests for the get_root method."""
+
+    def test_get_root_no_parent(self):
+        """A space with no parent is its own root."""
+        space = Space(transform=np.eye(3), parent=None)
+        assert space.get_root() is space
+
+    def test_get_root_one_level(self):
+        """Root of a child space is its parent."""
+        root = Space(transform=np.eye(3), parent=None)
+        child = Space(transform=translate2D(5, 3), parent=root)
+        assert child.get_root() is root
+
+    def test_get_root_nested(self):
+        """Root is the topmost ancestor in a deep hierarchy."""
+        root = Space(transform=np.eye(3), parent=None)
+        middle = Space(transform=translate2D(5, 0), parent=root)
+        leaf = Space(transform=translate2D(0, 5), parent=middle)
+        assert leaf.get_root() is root
+        assert middle.get_root() is root
+
+    def test_separate_hierarchies_different_roots(self):
+        """Spaces in different hierarchies have different roots."""
+        root_a = Space(transform=np.eye(3), parent=None)
+        root_b = Space(transform=np.eye(3), parent=None)
+        child_a = Space(transform=translate2D(1, 0), parent=root_a)
+        child_b = Space(transform=translate2D(0, 1), parent=root_b)
+        assert child_a.get_root() is not child_b.get_root()
+
+
 class TestComputeAbsoluteTransform:
     """Tests for the compute_absolute_transform method."""
 
@@ -336,11 +367,13 @@ class TestComputeRelativeTransformTo:
 
     def test_convert_transform_with_rotation(self):
         """Test conversion with rotated coordinate spaces."""
+        root = Space(transform=np.eye(3), parent=None)
+
         # Space A: no transformation
-        space_a = Space(transform=np.eye(3), parent=None)
+        space_a = Space(transform=np.eye(3), parent=root)
         
         # Space B: rotated 90 degrees
-        space_b = Space(transform=rotate2D(np.pi / 2), parent=None)
+        space_b = Space(transform=rotate2D(np.pi / 2), parent=root)
         
         # Convert from A to B
         result = space_a.compute_relative_transform_to(space_b)
@@ -349,6 +382,17 @@ class TestComputeRelativeTransformTo:
         point_in_a = np.array([1, 0, 1])
         point_in_b = result @ point_in_a
         np.testing.assert_array_almost_equal(point_in_b, [0, -1, 1])
+
+    def test_convert_transform_no_common_ancestor_raises(self):
+        """Test that converting between unrelated spaces raises ValueError."""
+        import pytest
+        root_a = Space(transform=np.eye(3), parent=None)
+        root_b = Space(transform=np.eye(3), parent=None)
+        space_a = Space(transform=translate2D(5, 0), parent=root_a)
+        space_b = Space(transform=translate2D(0, 3), parent=root_b)
+        
+        with pytest.raises(ValueError, match="common ancestor"):
+            space_a.compute_relative_transform_to(space_b)
 
     def test_convert_transform_nested_spaces(self):
         """Test conversion between spaces in different branches of hierarchy."""
