@@ -5,6 +5,7 @@ from coordinatus.coordinate import Coordinate, Point, Vector, transform_coordina
 from coordinatus.space import Space
 from coordinatus.types import CoordinateKind
 from coordinatus.transforms import translate2D, rotate2D, scale2D
+from coordinatus.transforms import project_xyz_to_xy, project_xy_to_x
 
 
 class TestTransformCoordinate:
@@ -67,6 +68,84 @@ class TestTransformCoordinate:
         # Vector should also be scaled
         expected = np.array([8, 15])
         np.testing.assert_array_almost_equal(result, expected)
+
+
+class TestTransformCoordinateProjection:
+    """Tests for transform_coordinate with dimension-reducing (non-square) projection matrices.
+
+    These tests reveal a bug: transform_coordinate uses D_in to slice the output but should
+    use D_out = transform.shape[0] - 1 for non-square projection matrices.
+    """
+
+    def test_projection_3d_to_2d_single_point_output_shape(self):
+        """Projecting a single 3D point through a 3x4 matrix must yield a 2D result, not 3D."""
+        proj = project_xyz_to_xy()  # 3x4 matrix: 3D -> 2D
+        coords = np.array([3.0, 5.0, 7.0])
+        result = transform_coordinate(proj, coords, CoordinateKind.POINT)
+        assert result.shape == (2,), (
+            f"Expected shape (2,) for 3D->2D projection, got {result.shape}. "
+            "transform_coordinate is using D_in instead of D_out to slice the result."
+        )
+
+    def test_projection_3d_to_2d_single_point_values(self):
+        """Projecting a 3D point through project_xyz_to_xy must return its x, y components."""
+        proj = project_xyz_to_xy()  # drops z, keeps x and y
+        coords = np.array([3.0, 5.0, 7.0])
+        result = transform_coordinate(proj, coords, CoordinateKind.POINT)
+        np.testing.assert_array_almost_equal(result, np.array([3.0, 5.0]))
+
+    def test_projection_3d_to_2d_batch_output_shape(self):
+        """Projecting a batch of 3D points through a 3x4 matrix must yield a (2, N) array."""
+        proj = project_xyz_to_xy()
+        coords = np.array([[1.0, 2.0, 3.0],   # x values
+                           [4.0, 5.0, 6.0],   # y values
+                           [7.0, 8.0, 9.0]])  # z values, shape (3, 3)
+        result = transform_coordinate(proj, coords, CoordinateKind.POINT)
+        assert result.shape == (2, 3), (
+            f"Expected shape (2, 3) for 3D->2D projection of 3 points, got {result.shape}."
+        )
+
+    def test_projection_3d_to_2d_batch_values(self):
+        """Batch 3D->2D projection must return x and y columns only."""
+        proj = project_xyz_to_xy()
+        coords = np.array([[1.0, 2.0, 3.0],
+                           [4.0, 5.0, 6.0],
+                           [7.0, 8.0, 9.0]])
+        result = transform_coordinate(proj, coords, CoordinateKind.POINT)
+        expected = np.array([[1.0, 2.0, 3.0],
+                              [4.0, 5.0, 6.0]])
+        np.testing.assert_array_almost_equal(result, expected)
+
+    def test_projection_2d_to_1d_single_point_output_shape(self):
+        """Projecting a single 2D point through a 2x3 matrix must yield a 1D result."""
+        proj = project_xy_to_x()  # 2x3 matrix: 2D -> 1D
+        coords = np.array([3.0, 5.0])
+        result = transform_coordinate(proj, coords, CoordinateKind.POINT)
+        assert result.shape == (1,), (
+            f"Expected shape (1,) for 2D->1D projection, got {result.shape}."
+        )
+
+    def test_projection_2d_to_1d_single_point_values(self):
+        """Projecting a 2D point through project_xy_to_x must return only the x component."""
+        proj = project_xy_to_x()
+        coords = np.array([3.0, 5.0])
+        result = transform_coordinate(proj, coords, CoordinateKind.POINT)
+        np.testing.assert_array_almost_equal(result, np.array([3.0]))
+
+    def test_projection_3d_to_2d_output_shape_via_to_absolute(self):
+        """Point.to_absolute() through a projection Space must return a coordinate with D_out dims.
+
+        A Space whose transform is the 3x4 projection matrix has D_in=3 and D_out=2.
+        A 3D Point in that space converted to_absolute() must yield a 2D coordinate.
+        """
+        proj = project_xyz_to_xy()  # 3x4
+        space = Space(transform=proj)  # root space, D_in=3, D_out=2
+        point = Point(np.array([3.0, 5.0, 7.0]), space=space)
+        result = point.to_absolute()
+        assert result.D == 2, (
+            f"Expected to_absolute() to yield a 2D coordinate, got D={result.D}."
+        )
+        np.testing.assert_array_almost_equal(result.coords, np.array([3.0, 5.0]))
 
 
 class TestCoordinateInit:
