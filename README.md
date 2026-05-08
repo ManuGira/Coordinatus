@@ -235,6 +235,7 @@ The [`notebooks/`](notebooks/) folder contains interactive Jupyter notebooks wit
 - [01_getting_started.ipynb](notebooks/01_getting_started.ipynb) — Points vs Vectors, hierarchical spaces, temperature unit conversion
 - [02_nested_spaces.ipynb](notebooks/02_nested_spaces.ipynb) — Accumulating TRS transforms through nested spaces
 - [03_space_visualization.ipynb](notebooks/03_space_visualization.ipynb) — The same geometry seen from different reference frames
+- [04_rotating_frame.ipynb](notebooks/04_rotating_frame.ipynb) — Animated GIF: a fixed point as seen from a rotating reference frame
 
 To run the notebooks locally, install the dev dependencies and launch Jupyter:
 

@@ -390,6 +390,7 @@ plotting = [
 dev = [
     { name = "jupyter" },
     { name = "matplotlib" },
+    { name = "pillow" },
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "ruff" },
@@ -407,6 +408,7 @@ provides-extras = ["plotting"]
 dev = [
     { name = "jupyter", specifier = ">=1.1.1" },
     { name = "matplotlib", specifier = ">=3.10.8" },
+    { name = "pillow", specifier = ">=11.0.0" },
     { name = "pytest", specifier = ">=9.0.2" },
     { name = "pytest-cov", specifier = ">=7.0.0" },
     { name = "ruff", specifier = ">=0.14.10" },
