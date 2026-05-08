@@ -19,7 +19,7 @@ except ImportError:  # pragma: no cover
     _HAS_MATPLOTLIB = False
     _Axes = None  # type: ignore
 
-from .space import Space
+from .space import Space, Space2D
 from .coordinate import Point, Vector
 
 
@@ -63,11 +63,7 @@ def draw_space_axes(
     
     # Use absolute space if space is None
     if space is None:
-        space = Space()
-    
-    # Use absolute space if reference_space is None
-    if reference_space is None:
-        reference_space = Space()
+        space = Space2D()
     
     # Get space origin and unit vectors in reference space
     origin = Point(np.array([0, 0]), space=space)
@@ -75,9 +71,14 @@ def draw_space_axes(
     y_axis = Vector(np.array([0, 1]), space=space)
     
     # Convert to reference space coordinates
-    origin_coords = origin.relative_to(reference_space).coords
-    x_axis_coords = x_axis.relative_to(reference_space).coords
-    y_axis_coords = y_axis.relative_to(reference_space).coords
+    if reference_space is None:
+        origin_coords = origin.to_absolute().coords
+        x_axis_coords = x_axis.to_absolute().coords
+        y_axis_coords = y_axis.to_absolute().coords
+    else:
+        origin_coords = origin.relative_to(reference_space).coords
+        x_axis_coords = x_axis.relative_to(reference_space).coords
+        y_axis_coords = y_axis.relative_to(reference_space).coords
 
     # Draw origin
     ax.plot(origin_coords[0], origin_coords[1], 'o', 
@@ -144,12 +145,11 @@ def draw_points(
     if not points:
         return
     
-    # Use absolute space if reference_space is None
-    if reference_space is None:
-        reference_space = Space()
-    
     # Get point coordinates in reference space
-    coords = [p.relative_to(reference_space).coords for p in points]
+    if reference_space is None:
+        coords = [p.to_absolute().coords for p in points]
+    else:
+        coords = [p.relative_to(reference_space).coords for p in points]
     
     xs = [c[0] for c in coords]
     ys = [c[1] for c in coords]

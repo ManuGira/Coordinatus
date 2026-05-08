@@ -21,6 +21,21 @@ def scale(scale_vector: ArrayLike) -> np.ndarray:
     return np.diagflat(homogeneous_scale_vector)
 
 
+def scale1D(sx: float) -> np.ndarray:
+    """
+    Creates a 1D scaling matrix.
+
+    Args:
+        sx: Scale factor along the x-axis
+
+    Returns:
+        A 2x2 scaling matrix in homogeneous coordinates:
+            [[sx, 0]
+             [0,  1]]
+    """
+    return scale([sx])
+
+
 def scale2D(sx: float, sy: float) -> np.ndarray:
     """
     Creates a 2D scaling matrix.

@@ -13,31 +13,34 @@ class Space:
     create these matrices. Spaces can be organized in a hierarchy, like objects
     in a scene graph.
     
+    The dimensionality of the space is determined by the shape of the transform matrix:
+    a 2x2 matrix is 1D, a 3x3 matrix is 2D, a 4x4 matrix is 3D, etc.
+    Use Space1D, Space2D, or Space3D for conveniently creating identity root spaces.
+    
     Attributes:
         transform: MxN affine homogeneous transformation matrix from this space to its parent.
-                  Defaults to identity if not specified.
         parent: Optional parent coordinate space. If None, this is a root/absolute space.
     
     Examples:
-        >>> # Create a root coordinate space
-        >>> root = Space()
-        >>> 
-        >>> # Create a child space translated by (5, 3) relative to root
+        >>> # Create a child space translated by (5, 3) relative to a 2D root
+        >>> root = Space2D()
         >>> child = Space(transform=translate2D(5, 3), parent=root)
         >>> 
         >>> # Get transformation to absolute space
         >>> absolute_t = child.compute_absolute_transform()
     """
-    def __init__(self, transform: Optional[np.ndarray] = None, parent: Optional['Space'] = None):
+    def __init__(self, transform: np.ndarray, parent: Optional['Space'] = None):
         """Initialize a coordinate space.
         
         Args:
-            transform: 3x3 affine transformation matrix relative to parent.
-                      If None, uses identity (no transformation).
+            transform: Affine transformation matrix relative to parent in homogeneous
+                      coordinates. A (D+1)x(D+1) matrix for a D-dimensional space.
             parent: Parent coordinate space. If None, this is a root space.
         """
-        self.transform = transform if transform is not None else np.eye(3)
+        self.transform = transform
         self.parent = parent
+        if transform is None:
+            raise ValueError("transform must be a numpy array, not None. Use Space1D(), Space2D(), or Space3D() for identity root spaces.")
 
     @property
     def D_in(self) -> int:
@@ -110,13 +113,34 @@ class Space:
         
         # Both are identity spaces (no parent and identity transform)
         if self.parent is None and other.parent is None:
-            return np.allclose(self.transform, np.eye(3)) and np.allclose(other.transform, np.eye(3))
+            n, m = self.transform.shape[0], other.transform.shape[0]
+            if n != m:
+                return False
+            return np.allclose(self.transform, np.eye(n)) and np.allclose(other.transform, np.eye(m))
         
         return False
 
     def __ne__(self, other):
         """Check if two spaces are not equal."""
         return not self.__eq__(other)
+
+    def get_root(self) -> 'Space':
+        """Returns the root (topmost) space in this space's hierarchy.
+        
+        Walks up the parent chain until reaching a space with no parent.
+        
+        Returns:
+            The root Space of this hierarchy.
+        
+        Examples:
+            >>> root = Space2D()
+            >>> child = Space(transform=translate2D(5, 3), parent=root)
+            >>> child.get_root() is root
+            True
+        """
+        if self.parent is None:
+            return self
+        return self.parent.get_root()
 
     def compute_absolute_transform(self) -> np.ndarray:
         """Computes the cumulative transformation matrix from this space to absolute space.
@@ -147,21 +171,98 @@ class Space:
         1. Transforming from this space to absolute space
         2. Transforming from absolute space to the target space
         
+        Both spaces must belong to the same coordinate hierarchy (share a common root).
+        If they do not, a ValueError is raised — converting between unrelated coordinate
+        spaces is undefined.
+        
         Args:
             target_space: The destination coordinate space.
         
         Returns:
-            3x3 transformation matrix that converts coordinates from this space
-            to the target space.
+            Transformation matrix that converts coordinates from this space to the target space.
+        
+        Raises:
+            ValueError: If the two spaces do not share a common ancestor.
         
         Examples:
-            >>> space_a = Space(transform=translate2D(5, 0))
-            >>> space_b = Space(transform=translate2D(0, 3))
+            >>> root = Space2D()
+            >>> space_a = Space(transform=translate2D(5, 0), parent=root)
+            >>> space_b = Space(transform=translate2D(0, 3), parent=root)
             >>> convert_t = space_a.compute_relative_transform_to(space_b)
             >>> # Use convert_t to express space_a coordinates in space_b
         """
+        if self.get_root() is not target_space.get_root():
+            raise ValueError(
+                "Cannot convert between unrelated coordinate spaces: the two spaces "
+                "do not share a common ancestor. Ensure both spaces belong to the "
+                "same coordinate hierarchy."
+            )
         inv_transform = np.linalg.inv(target_space.compute_absolute_transform())
         return inv_transform @ self.compute_absolute_transform()
+
+
+class Space1D(Space):
+    """A 1D identity coordinate space (root/absolute).
+    
+    Equivalent to Space(transform=np.eye(2)). Use as the root space for 1D
+    coordinate hierarchies.
+    
+    Args:
+        parent: Optional parent coordinate space.
+    """
+    def __init__(self, parent: Optional[Space] = None):
+        super().__init__(transform=np.eye(2), parent=parent)
+
+
+class Space2D(Space):
+    """A 2D identity coordinate space (root/absolute).
+    
+    Equivalent to Space(transform=np.eye(3)). Use as the root space for 2D
+    coordinate hierarchies.
+    
+    Args:
+        parent: Optional parent coordinate space.
+    """
+    def __init__(self, parent: Optional[Space] = None):
+        super().__init__(transform=np.eye(3), parent=parent)
+
+
+class Space3D(Space):
+    """A 3D identity coordinate space (root/absolute).
+    
+    Equivalent to Space(transform=np.eye(4)). Use as the root space for 3D
+    coordinate hierarchies.
+    
+    Args:
+        parent: Optional parent coordinate space.
+    """
+    def __init__(self, parent: Optional[Space] = None):
+        super().__init__(transform=np.eye(4), parent=parent)
+
+class Space4D(Space):
+    """A 4D identity coordinate space (root/absolute).
+    
+    Equivalent to Space(transform=np.eye(5)). Use as the root space for 4D
+    coordinate hierarchies.
+    
+    Args:
+        parent: Optional parent coordinate space.
+    """
+    def __init__(self, parent: Optional[Space] = None):
+        super().__init__(transform=np.eye(5), parent=parent)
+
+class SpaceND(Space):
+    """A generic N-dimensional identity coordinate space (root/absolute).
+    
+    Equivalent to Space(transform=np.eye(N+1)). Use as the root space for N-dimensional
+    coordinate hierarchies.
+    
+    Args:
+        parent: Optional parent coordinate space.
+        N: The number of dimensions for this space.
+    """
+    def __init__(self, N: int, parent: Optional[Space] = None):
+        super().__init__(transform=np.eye(N + 1), parent=parent)
 
 
 def create_space(parent: Optional[Space]=None, tx: float=0.0, ty: float=0.0, angle_rad: float=0.0, sx: float=1.0, sy: float=1.0) -> Space:

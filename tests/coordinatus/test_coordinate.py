@@ -273,8 +273,9 @@ class TestCoordinateToSpace:
 
     def test_coordinate_base_class_relative_to(self):
         """Test relative_to with base Coordinate class (for coverage)."""
-        space_a = Space(transform=translate2D(5, 0), parent=None)
-        space_b = Space(transform=translate2D(0, 3), parent=None)
+        root = Space(transform=np.eye(3), parent=None)
+        space_a = Space(transform=translate2D(5, 0), parent=root)
+        space_b = Space(transform=translate2D(0, 3), parent=root)
         coord = Coordinate(kind=CoordinateKind.POINT, coords=np.array([0, 0]), space=space_a)
         
         result = coord.relative_to(space_b)
@@ -340,8 +341,9 @@ class TestCoordinateToSpace:
 
     def test_to_system_with_rotation(self):
         """Test converting between rotated spaces."""
-        space_a = Space(transform=np.eye(3), parent=None)
-        space_b = Space(transform=rotate2D(np.pi / 2), parent=None)
+        root = Space(transform=np.eye(3), parent=None)
+        space_a = Space(transform=np.eye(3), parent=root)
+        space_b = Space(transform=rotate2D(np.pi / 2), parent=root)
         
         # Point at (1, 0) in space A
         point = Point(coords=np.array([1, 0]), space=space_a)
@@ -354,8 +356,9 @@ class TestCoordinateToSpace:
 
     def test_to_system_vector_translation(self):
         """Test that vector conversion ignores translation."""
-        space_a = Space(transform=translate2D(10, 5), parent=None)
-        space_b = Space(transform=translate2D(20, 15), parent=None)
+        root = Space(transform=np.eye(3), parent=None)
+        space_a = Space(transform=translate2D(10, 5), parent=root)
+        space_b = Space(transform=translate2D(20, 15), parent=root)
         
         vector = Vector(coords=np.array([1, 0]), space=space_a)
         result = vector.relative_to(space_b)
@@ -366,14 +369,27 @@ class TestCoordinateToSpace:
 
     def test_to_system_vector_rotation(self):
         """Test that vector conversion respects rotation."""
-        space_a = Space(transform=np.eye(3), parent=None)
-        space_b = Space(transform=rotate2D(np.pi / 2), parent=None)
+        root = Space(transform=np.eye(3), parent=None)
+        space_a = Space(transform=np.eye(3), parent=root)
+        space_b = Space(transform=rotate2D(np.pi / 2), parent=root)
         
         vector = Vector(coords=np.array([1, 0]), space=space_a)
         result = vector.relative_to(space_b)
         
         # Vector should rotate
         np.testing.assert_array_almost_equal(result.coords, [0, -1])
+
+    def test_relative_to_no_common_ancestor_raises(self):
+        """Test that converting between unrelated spaces raises ValueError."""
+        import pytest
+        root_a = Space(transform=np.eye(3), parent=None)
+        root_b = Space(transform=np.eye(3), parent=None)
+        space_a = Space(transform=translate2D(5, 0), parent=root_a)
+        space_b = Space(transform=translate2D(0, 3), parent=root_b)
+        point = Point(coords=np.array([1, 0]), space=space_a)
+        
+        with pytest.raises(ValueError, match="common ancestor"):
+            point.relative_to(space_b)
 
     def test_to_system_complex_hierarchy(self):
         """Test conversion in complex hierarchy."""
@@ -929,9 +945,8 @@ class TestPointAndVectorBehavior:
         space = Space(transform=translate2D(5, 3), parent=None)
         point = Point(coords=np.array([1, 2]), space=space)
         
-        # When converting to identity space, point should be translated
-        identity_space = Space(transform=np.eye(3), parent=None)
-        result = point.relative_to(identity_space)
+        # When converting to absolute space, point should be translated
+        result = point.to_absolute()
         
         expected = np.array([6, 5])
         np.testing.assert_array_almost_equal(result.coords, expected)
@@ -941,9 +956,8 @@ class TestPointAndVectorBehavior:
         space = Space(transform=translate2D(5, 3), parent=None)
         vector = Vector(coords=np.array([1, 2]), space=space)
         
-        # When converting to identity space, vector should not be translated
-        identity_space = Space(transform=np.eye(3), parent=None)
-        result = vector.relative_to(identity_space)
+        # When converting to absolute space, vector should not be translated
+        result = vector.to_absolute()
         
         expected = np.array([1, 2])
         np.testing.assert_array_almost_equal(result.coords, expected)
@@ -953,8 +967,7 @@ class TestPointAndVectorBehavior:
         space = Space(transform=scale2D(2, 2), parent=None)
         point = Point(coords=np.array([3, 4]), space=space)
         
-        identity_space = Space(transform=np.eye(3), parent=None)
-        result = point.relative_to(identity_space)
+        result = point.to_absolute()
         
         expected = np.array([6, 8])
         np.testing.assert_array_almost_equal(result.coords, expected)
@@ -964,8 +977,7 @@ class TestPointAndVectorBehavior:
         space = Space(transform=scale2D(2, 2), parent=None)
         vector = Vector(coords=np.array([3, 4]), space=space)
         
-        identity_space = Space(transform=np.eye(3), parent=None)
-        result = vector.relative_to(identity_space)
+        result = vector.to_absolute()
         
         expected = np.array([6, 8])
         np.testing.assert_array_almost_equal(result.coords, expected)
@@ -973,13 +985,12 @@ class TestPointAndVectorBehavior:
     def test_point_and_vector_both_rotate(self):
         """Test that both points and vectors rotate the same way."""
         space = Space(transform=rotate2D(np.pi / 2), parent=None)
-        identity_space = Space(transform=np.eye(3), parent=None)
         
         point = Point(coords=np.array([1, 0]), space=space)
         vector = Vector(coords=np.array([1, 0]), space=space)
         
-        point_result = point.relative_to(identity_space)
-        vector_result = vector.relative_to(identity_space)
+        point_result = point.to_absolute()
+        vector_result = vector.to_absolute()
         
         # Both should rotate the same
         expected = np.array([0, 1])
@@ -1012,8 +1023,9 @@ class TestTypePreservation:
 
     def test_point_relative_to_preserves_type(self):
         """Test that Point.relative_to() returns a Point instance."""
-        space_a = Space(transform=translate2D(5, 0), parent=None)
-        space_b = Space(transform=translate2D(0, 3), parent=None)
+        root = Space(transform=np.eye(3), parent=None)
+        space_a = Space(transform=translate2D(5, 0), parent=root)
+        space_b = Space(transform=translate2D(0, 3), parent=root)
         point = Point(coords=np.array([0, 0]), space=space_a)
         
         result = point.relative_to(space_b)
@@ -1023,13 +1035,15 @@ class TestTypePreservation:
 
     def test_vector_relative_to_preserves_type(self):
         """Test that Vector.relative_to() returns a Vector instance."""
-        space_a = Space(transform=translate2D(5, 0), parent=None)
-        space_b = Space(transform=translate2D(0, 3), parent=None)
+        root = Space(transform=np.eye(3), parent=None)
+        space_a = Space(transform=translate2D(5, 0), parent=root)
+        space_b = Space(transform=translate2D(0, 3), parent=root)
         vector = Vector(coords=np.array([1, 0]), space=space_a)
         
         result = vector.relative_to(space_b)
         
         assert isinstance(result, Vector), f"Expected Vector but got {type(result)}"
+        np.testing.assert_array_almost_equal(result.coords, [1, 0])
 
     def test_point_addition_preserves_type(self):
         """Test that Point + value returns a Point instance."""

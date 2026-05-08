@@ -2,9 +2,9 @@
 
 import numpy as np
 
-from .translate import translate, translate2D, translate3D
+from .translate import translate, translate1D, translate2D, translate3D
 from .rotate import rotate2D, rotate3Dx, rotate3Dy, rotate3Dz, rotate3D
-from .scale import scale, scale2D, scale3D, shear2D
+from .scale import scale, scale1D, scale2D, scale3D, shear2D
 from .dimension import (
     swap_axes,
     reduce_dim,
@@ -19,8 +19,13 @@ from .dimension import (
     project_xyz_to_z,
 )
 
+def ts1D(tx: float=0, sx: float=1) -> np.ndarray:
+    """Creates a combined translation and scaling matrix for 1D transformations."""
+    T = translate([tx])
+    S = scale([sx])
+    return T @ S
 
-def trs2D(tx: float, ty: float, angle_rad: float, sx: float, sy: float) -> np.ndarray:
+def trs2D(tx: float=0, ty: float=0, angle_rad: float=0, sx: float=1, sy: float=1) -> np.ndarray:
     """Creates a combined translation, rotation, and scaling matrix."""
     T = translate2D(tx, ty)
     R = rotate2D(angle_rad)
@@ -28,7 +33,7 @@ def trs2D(tx: float, ty: float, angle_rad: float, sx: float, sy: float) -> np.nd
     return T @ R @ S
 
 
-def trks2D(tx: float, ty: float, angle_rad: float, kx: float, ky: float, sx: float, sy: float) -> np.ndarray:
+def trks2D(tx: float=0, ty: float=0, angle_rad: float=0, kx: float=0, ky: float=0, sx: float=1, sy: float=1) -> np.ndarray:
     """Creates a combined translation, rotation, shear, and scaling matrix."""
     T = translate2D(tx, ty)
     R = rotate2D(angle_rad)
@@ -38,5 +43,5 @@ def trks2D(tx: float, ty: float, angle_rad: float, kx: float, ky: float, sx: flo
 
 
 __all__ = [
-    # Nothing to export explicitly, avoinding namespace conflictions
+    # Nothing to export explicitly, avoiding namespace conflictss
 ]
