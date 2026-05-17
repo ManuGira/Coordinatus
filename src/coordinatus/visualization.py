@@ -1,7 +1,8 @@
 """Visualization utilities for spaces and coordinates.
 
 This module provides plotting functions to visualize spaces and points.
-Requires matplotlib to be installed.
+Requires matplotlib to be installed. The draw_space_hierarchy function
+additionally requires networkx.
 
 Install with: pip install coordinatus[plotting]
 """
@@ -18,6 +19,13 @@ try:
 except ImportError:  # pragma: no cover
     _HAS_MATPLOTLIB = False
     _Axes = None  # type: ignore
+
+try:
+    import networkx as nx
+    _HAS_NETWORKX = True
+except ImportError:  # pragma: no cover
+    _HAS_NETWORKX = False
+    nx = None  # type: ignore
 
 from .space import Space, Space2D
 from .coordinate import Point, Vector
@@ -166,4 +174,103 @@ def draw_points(
         for i, (x, y) in enumerate(zip(xs, ys), 1):
             ax.text(x + 0.1, y + 0.1, f'{label} {i}',
                     fontsize=10, color=color, fontweight='bold')
-            
+
+
+def draw_space_hierarchy(
+    spaces: list,
+    labels: dict | None = None,
+    title: str = "Space hierarchy",
+) -> None:
+    """Draw a directed tree of Space objects linked by their .parent attribute.
+
+    Requires both matplotlib and networkx (``pip install coordinatus[plotting]``).
+
+    Args:
+        spaces: All Space objects to include in the graph. Every object
+            referenced as a parent must also be present in the list.
+        labels: Optional mapping ``{id(space): display_label}``. If omitted,
+            spaces are labelled "Space 0", "Space 1", … in list order.
+        title: Figure title.
+
+    Examples:
+        >>> from coordinatus import Space2D, create_space
+        >>> from coordinatus.visualization import draw_space_hierarchy
+        >>> root = Space2D()
+        >>> child = create_space(parent=root, tx=1, ty=0, angle_rad=0, sx=1, sy=1)
+        >>> draw_space_hierarchy([root, child], title="My hierarchy")
+    """
+    _check_matplotlib()
+    if not _HAS_NETWORKX:  # pragma: no cover
+        raise ImportError(
+            "networkx is required for draw_space_hierarchy. "
+            "Install it with: pip install coordinatus[plotting]"
+        )
+
+    import matplotlib.pyplot as plt
+
+    if labels is None:
+        labels = {id(s): f"Space {i}" for i, s in enumerate(spaces)}
+
+    G = nx.DiGraph()
+    for s in spaces:
+        G.add_node(id(s))
+        if s.parent is not None:
+            G.add_edge(id(s.parent), id(s))  # parent → child
+
+    def _hierarchy_pos(
+        graph, root, width=1.0, vert_gap=1.0,
+        x_start=0.0, depth=0, pos=None, parent=None,
+    ):
+        if pos is None:
+            pos = {}
+        children = [n for n in graph.successors(root) if n != parent]
+        if not children:
+            pos[root] = (x_start, -depth * vert_gap)
+        else:
+            dx = width / len(children)
+            next_x = x_start - width / 2 + dx / 2
+            for child in children:
+                _hierarchy_pos(
+                    graph, child, width=dx, vert_gap=vert_gap,
+                    x_start=next_x, depth=depth + 1, pos=pos, parent=root,
+                )
+                next_x += dx
+            pos[root] = (x_start, -depth * vert_gap)
+        return pos
+
+    roots = [n for n in G.nodes if G.in_degree(n) == 0]
+    pos = {}
+    x_offset = 0.0
+    for root in roots:
+        subtree_nodes = list(nx.dfs_preorder_nodes(G, root))
+        subtree_width = max(1, sum(1 for n in subtree_nodes if G.out_degree(n) == 0))
+        subtree_pos = _hierarchy_pos(
+            G, root, width=float(subtree_width), x_start=x_offset + subtree_width / 2
+        )
+        pos.update(subtree_pos)
+        x_offset += subtree_width + 1
+
+    node_labels = {n: labels.get(n, str(n)) for n in G.nodes}
+
+    depth = max(-y for _, y in pos.values()) if pos else 0
+    width_units = x_offset or 1
+    fig_w = max(5, width_units * 1.8)
+    fig_h = max(3, (depth + 1) * 1.2)
+
+    fig, ax = plt.subplots(figsize=(fig_w, fig_h))
+    nx.draw(
+        G, pos, ax=ax,
+        labels=node_labels,
+        with_labels=True,
+        node_size=1800,
+        node_color="#4C72B0",
+        font_color="white",
+        font_size=9,
+        arrows=True,
+        arrowsize=18,
+        edge_color="#888888",
+        width=2,
+    )
+    ax.set_title(title)
+    plt.tight_layout()
+    plt.show()

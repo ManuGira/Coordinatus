@@ -9,6 +9,7 @@ from .coordinate import Coordinate, Point, Vector, transform_coordinate
 # Visualization is optional - only available if matplotlib is installed
 try:
     from . import visualization
+    from .visualization import draw_space_axes, draw_points, draw_space_hierarchy
 except ImportError:  # pragma: no cover
     visualization = None  # type: ignore[assignment]
 
