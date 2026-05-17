@@ -49,6 +49,16 @@ It will run all tests, generate coverage reports, and perform linting checks.
 
 For any automation or AI agent execution, always use the `uv run` command format.
 
+## Executing Notebooks
+
+Never try to start or restart a Jupyter kernel interactively — it blocks. Instead, execute notebooks non-interactively via `nbconvert`:
+
+```powershell
+uv run jupyter nbconvert --to notebook --execute --ExecutePreprocessor.timeout=60 --inplace notebooks/my_notebook.ipynb
+```
+
+Always set `--ExecutePreprocessor.timeout` to a reasonable value (e.g. 60 seconds) to avoid hanging forever.
+
 ## Python Typing Style
 
 When using type hints, **prefer the built-in collection types** (`list`, `dict`, `tuple`, etc.) over importing from `typing` (e.g., avoid `from typing import List, Dict, Tuple`).

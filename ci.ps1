@@ -22,4 +22,14 @@ if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }
 
+Write-Host "`nExecuting notebooks..." -ForegroundColor Cyan
+Get-ChildItem notebooks/*.ipynb | ForEach-Object {
+    Write-Host "  Running $($_.Name)..." -ForegroundColor Gray
+    uv run jupyter nbconvert --to notebook --execute --ExecutePreprocessor.timeout=60 --inplace $_.FullName 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "Notebook $($_.Name) failed!" -ForegroundColor Red
+        exit $LASTEXITCODE
+    }
+}
+
 Write-Host "`nAll checks passed! ✓" -ForegroundColor Green
