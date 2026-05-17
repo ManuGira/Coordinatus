@@ -7,6 +7,7 @@ additionally requires networkx.
 Install with: pip install coordinatus[plotting]
 """
 
+from dataclasses import dataclass
 from typing import Optional, List, TYPE_CHECKING
 import numpy as np
 
@@ -176,21 +177,165 @@ def draw_points(
                     fontsize=10, color=color, fontweight='bold')
 
 
+# ── helpers for draw_space_hierarchy ────────────────────────────────────────
+
+@dataclass
+class _HierarchyRenderData:
+    """Bundled, precomputed data for rendering a Space hierarchy."""
+    spaces: list
+    labels: dict          # {id(space): display_label}
+    graph: object         # nx.DiGraph (typed as object to avoid import-time errors)
+    pos: dict             # {node_id: (x, y)} layout positions
+    node_labels: dict     # {node_id: display_label}
+    colors: dict          # {node_id: hex_color}
+    reference_space: "Space | None"  # root space for the axes subplot; None = absolute
+
+
+def _build_digraph(spaces: list) -> object:
+    """Build a directed graph (edge: parent → child) from a list of Space objects."""
+    G = nx.DiGraph()
+    for s in spaces:
+        G.add_node(id(s))
+        if s.parent is not None:
+            G.add_edge(id(s.parent), id(s))
+    return G
+
+
+def _tree_pos(
+    graph, root, width: float = 1.0, vert_gap: float = 1.0,
+    x_start: float = 0.0, depth: int = 0,
+    pos: dict | None = None, parent=None,
+) -> dict:
+    """Recursively assign (x, y) positions for a single subtree (top-down layout)."""
+    if pos is None:
+        pos = {}
+    children = [n for n in graph.successors(root) if n != parent]
+    if not children:
+        pos[root] = (x_start, -depth * vert_gap)
+    else:
+        dx = width / len(children)
+        next_x = x_start - width / 2 + dx / 2
+        for child in children:
+            _tree_pos(graph, child, width=dx, vert_gap=vert_gap,
+                      x_start=next_x, depth=depth + 1, pos=pos, parent=root)
+            next_x += dx
+        pos[root] = (x_start, -depth * vert_gap)
+    return pos
+
+
+def _compute_layout(G) -> dict:
+    """Compute a top-down hierarchical layout for all subtrees in *G*."""
+    roots = [n for n in G.nodes if G.in_degree(n) == 0]
+    pos = {}
+    x_offset = 0.0
+    for root in roots:
+        subtree_nodes = list(nx.dfs_preorder_nodes(G, root))
+        leaf_count = max(1, sum(1 for n in subtree_nodes if G.out_degree(n) == 0))
+        subtree_pos = _tree_pos(G, root, width=float(leaf_count),
+                                x_start=x_offset + leaf_count / 2)
+        pos.update(subtree_pos)
+        x_offset += leaf_count + 1
+    return pos
+
+
+def _make_color_map(spaces: list) -> dict:
+    """Return ``{id(space): hex_color}`` cycling through the *tab10* palette."""
+    import matplotlib
+    import matplotlib.colors as mcolors
+    cmap = matplotlib.colormaps["tab10"]
+    return {id(s): mcolors.to_hex(cmap(i % 10)) for i, s in enumerate(spaces)}
+
+
+def _find_reference_space(spaces: list, G) -> "Space | None":
+    """Return the single root space when there is exactly one, otherwise *None*."""
+    id_to_space = {id(s): s for s in spaces}
+    roots = [id_to_space[n] for n in G.nodes if G.in_degree(n) == 0 and n in id_to_space]
+    return roots[0] if len(roots) == 1 else None
+
+
+def _build_hierarchy_render_data(spaces: list, labels: dict) -> _HierarchyRenderData:
+    """Assemble all precomputed data needed by the two draw_space_hierarchy subplots."""
+    G = _build_digraph(spaces)
+    pos = _compute_layout(G)
+    return _HierarchyRenderData(
+        spaces=spaces,
+        labels=labels,
+        graph=G,
+        pos=pos,
+        node_labels={n: labels.get(n, str(n)) for n in G.nodes},
+        colors=_make_color_map(spaces),
+        reference_space=_find_reference_space(spaces, G),
+    )
+
+
+def _compute_figure_size(pos: dict) -> tuple[float, float]:
+    """Estimate a good panel (width, height) from the layout *pos* dict."""
+    if not pos:
+        return 4.0, 3.0
+    depth = max(-y for _, y in pos.values())
+    x_span = max(x for x, _ in pos.values()) - min(x for x, _ in pos.values()) + 2
+    return max(4.0, x_span * 1.8), max(3.0, (depth + 1) * 1.2)
+
+
+def _draw_hierarchy_subplot(ax, data: _HierarchyRenderData) -> None:
+    """Draw the networkx directed graph (parent → child) on *ax*."""
+    node_color_list = [data.colors[n] for n in data.graph.nodes]
+    nx.draw(
+        data.graph, data.pos, ax=ax,
+        labels=data.node_labels,
+        with_labels=True,
+        node_size=1800,
+        node_color=node_color_list,
+        font_color="white",
+        font_size=9,
+        arrows=True,
+        arrowsize=18,
+        edge_color="#888888",
+        width=2,
+    )
+    ax.set_title("Hierarchy")
+
+
+def _draw_axes_subplot(ax, data: _HierarchyRenderData) -> None:
+    """Draw every space's coordinate frame on *ax* using :func:`draw_space_axes`."""
+    for space in data.spaces:
+        color = data.colors[id(space)]
+        label = data.labels[id(space)]
+        draw_space_axes(ax, space, reference_space=data.reference_space,
+                        color=color, label=label)
+    ref_name = (
+        data.labels.get(id(data.reference_space), "root")
+        if data.reference_space is not None
+        else "absolute"
+    )
+    ax.set_aspect("equal")
+    ax.grid(True, alpha=0.3)
+    ax.set_xlabel("X")
+    ax.set_ylabel("Y")
+    ax.set_title(f"Coordinate axes (in {ref_name} space)")
+    ax.legend(fontsize=7, loc="best")
+
+
 def draw_space_hierarchy(
     spaces: list,
     labels: dict | None = None,
     title: str = "Space hierarchy",
 ) -> None:
-    """Draw a directed tree of Space objects linked by their .parent attribute.
+    """Draw a directed tree of Space objects and their coordinate axes side by side.
+
+    The left panel shows the parent-child hierarchy as a directed graph.
+    The right panel draws every space's coordinate frame as seen from the root
+    space (or in absolute coordinates when there are multiple roots). Node colours
+    are shared across both panels so each space is easy to identify.
 
     Requires both matplotlib and networkx (``pip install coordinatus[plotting]``).
 
     Args:
-        spaces: All Space objects to include in the graph. Every object
-            referenced as a parent must also be present in the list.
+        spaces: All Space objects to include. Every object referenced as a
+            parent must also be present in the list.
         labels: Optional mapping ``{id(space): display_label}``. If omitted,
             spaces are labelled "Space 0", "Space 1", … in list order.
-        title: Figure title.
+        title: Overall figure title.
 
     Examples:
         >>> from coordinatus import Space2D, create_space
@@ -211,66 +356,12 @@ def draw_space_hierarchy(
     if labels is None:
         labels = {id(s): f"Space {i}" for i, s in enumerate(spaces)}
 
-    G = nx.DiGraph()
-    for s in spaces:
-        G.add_node(id(s))
-        if s.parent is not None:
-            G.add_edge(id(s.parent), id(s))  # parent → child
+    data = _build_hierarchy_render_data(spaces, labels)
+    panel_w, panel_h = _compute_figure_size(data.pos)
 
-    def _hierarchy_pos(
-        graph, root, width=1.0, vert_gap=1.0,
-        x_start=0.0, depth=0, pos=None, parent=None,
-    ):
-        if pos is None:
-            pos = {}
-        children = [n for n in graph.successors(root) if n != parent]
-        if not children:
-            pos[root] = (x_start, -depth * vert_gap)
-        else:
-            dx = width / len(children)
-            next_x = x_start - width / 2 + dx / 2
-            for child in children:
-                _hierarchy_pos(
-                    graph, child, width=dx, vert_gap=vert_gap,
-                    x_start=next_x, depth=depth + 1, pos=pos, parent=root,
-                )
-                next_x += dx
-            pos[root] = (x_start, -depth * vert_gap)
-        return pos
-
-    roots = [n for n in G.nodes if G.in_degree(n) == 0]
-    pos = {}
-    x_offset = 0.0
-    for root in roots:
-        subtree_nodes = list(nx.dfs_preorder_nodes(G, root))
-        subtree_width = max(1, sum(1 for n in subtree_nodes if G.out_degree(n) == 0))
-        subtree_pos = _hierarchy_pos(
-            G, root, width=float(subtree_width), x_start=x_offset + subtree_width / 2
-        )
-        pos.update(subtree_pos)
-        x_offset += subtree_width + 1
-
-    node_labels = {n: labels.get(n, str(n)) for n in G.nodes}
-
-    depth = max(-y for _, y in pos.values()) if pos else 0
-    width_units = x_offset or 1
-    fig_w = max(5, width_units * 1.8)
-    fig_h = max(3, (depth + 1) * 1.2)
-
-    fig, ax = plt.subplots(figsize=(fig_w, fig_h))
-    nx.draw(
-        G, pos, ax=ax,
-        labels=node_labels,
-        with_labels=True,
-        node_size=1800,
-        node_color="#4C72B0",
-        font_color="white",
-        font_size=9,
-        arrows=True,
-        arrowsize=18,
-        edge_color="#888888",
-        width=2,
-    )
-    ax.set_title(title)
+    fig, (ax_graph, ax_axes) = plt.subplots(1, 2, figsize=(panel_w * 2 + 1, panel_h))
+    _draw_hierarchy_subplot(ax_graph, data)
+    _draw_axes_subplot(ax_axes, data)
+    fig.suptitle(title)
     plt.tight_layout()
     plt.show()
