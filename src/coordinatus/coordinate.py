@@ -64,8 +64,11 @@ def transform_coordinate(transform: np.ndarray, coordinates: np.ndarray, kind: C
     if np.any(non_zero_mask):
         transformed_coords[:, non_zero_mask] /= weights[non_zero_mask]
     
-    # Return all dimensions except the last (weight) row
-    result = transformed_coords[:D, :]
+    # Return all dimensions except the last (weight) row.
+    # Use D_out = transform.shape[0] - 1, not D_in, so that dimension-reducing
+    # projection matrices (e.g. 3x4 for 3D->2D) return the correct number of rows.
+    D_out = transform.shape[0] - 1
+    result = transformed_coords[:D_out, :]
     
     # If input was 1D, return 1D
     if is_single:

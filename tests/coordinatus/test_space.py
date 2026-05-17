@@ -1,8 +1,13 @@
 """Unit tests for the Space class."""
 
 import numpy as np
-from coordinatus.space import Space, Space1D, Space2D, Space3D, Space4D, SpaceND, create_space
+import pytest
+from coordinatus.space import (
+    Space, Space1D, Space2D, Space3D, Space4D, SpaceND, create_space,
+    ProjectionSpace, _find_lca, _path_from, _invert_step,
+)
 from coordinatus.transforms import translate2D, rotate2D, scale2D, trs2D
+from coordinatus.transforms.dimension import project_xyz_to_xy
 
 
 class TestSpaceInit:
@@ -579,3 +584,215 @@ class TestSpaceSubclasses:
         np.testing.assert_array_equal(space.transform, np.eye(4))
         assert space.D_in == 3
         assert space.parent is None
+
+
+class TestFindLCA:
+    """Tests for the _find_lca helper."""
+
+    def test_lca_two_siblings(self):
+        """LCA of two siblings is their direct parent."""
+        parent = Space2D()
+        a = Space(transform=translate2D(1, 0), parent=parent)
+        b = Space(transform=translate2D(0, 1), parent=parent)
+        assert _find_lca(a, b) is parent
+
+    def test_lca_ancestor_and_descendant(self):
+        """LCA when one node is a direct ancestor of the other is the ancestor."""
+        root = Space2D()
+        child = Space(transform=translate2D(1, 0), parent=root)
+        assert _find_lca(root, child) is root
+        assert _find_lca(child, root) is root
+
+    def test_lca_deeper_ancestor(self):
+        """LCA when ancestor is two levels up."""
+        root = Space2D()
+        mid = Space(transform=translate2D(1, 0), parent=root)
+        leaf = Space(transform=translate2D(2, 0), parent=mid)
+        assert _find_lca(root, leaf) is root
+        assert _find_lca(leaf, root) is root
+
+    def test_lca_node_with_itself(self):
+        """LCA of a node with itself is the node."""
+        node = Space2D()
+        assert _find_lca(node, node) is node
+
+    def test_lca_cousins(self):
+        """LCA of two cousins (sharing a grandparent) is the grandparent."""
+        root = Space2D()
+        branch_a = Space(transform=translate2D(5, 0), parent=root)
+        branch_b = Space(transform=translate2D(0, 5), parent=root)
+        leaf_a = Space(transform=translate2D(1, 0), parent=branch_a)
+        leaf_b = Space(transform=translate2D(0, 1), parent=branch_b)
+        assert _find_lca(leaf_a, leaf_b) is root
+
+    def test_lca_unrelated_raises(self):
+        """_find_lca raises ValueError for unrelated spaces."""
+        root_a = Space2D()
+        root_b = Space2D()
+        with pytest.raises(ValueError):
+            _find_lca(root_a, root_b)
+
+
+class TestPathFrom:
+    """Tests for the _path_from helper."""
+
+    def test_path_direct_child(self):
+        """Path from parent to direct child is [child]."""
+        parent = Space2D()
+        child = Space(transform=translate2D(1, 0), parent=parent)
+        assert _path_from(parent, child) == [child]
+
+    def test_path_two_steps(self):
+        """Path from grandparent to grandchild is [child, grandchild]."""
+        root = Space2D()
+        child = Space(transform=translate2D(1, 0), parent=root)
+        grandchild = Space(transform=translate2D(2, 0), parent=child)
+        assert _path_from(root, grandchild) == [child, grandchild]
+
+    def test_path_to_self_is_empty(self):
+        """Path from a node to itself is an empty list."""
+        node = Space2D()
+        assert _path_from(node, node) == []
+
+    def test_path_order_is_top_down(self):
+        """Path is ordered from child-of-ancestor down to descendant."""
+        root = Space2D()
+        a = Space(transform=np.eye(3), parent=root)
+        b = Space(transform=np.eye(3), parent=a)
+        c = Space(transform=np.eye(3), parent=b)
+        path = _path_from(root, c)
+        assert path == [a, b, c]
+
+
+class TestInvertStep:
+    """Tests for the _invert_step helper."""
+
+    def test_square_transform_returns_inverse(self):
+        """Standard square transform returns the matrix inverse."""
+        t = translate2D(3, 4)
+        node = Space(transform=t, parent=Space2D())
+        result = _invert_step(node)
+        expected = np.linalg.inv(t)
+        np.testing.assert_array_almost_equal(result, expected)
+
+    def test_projection_space_returns_projection_matrix(self):
+        """ProjectionSpace returns projection_matrix, not pseudo-inverse."""
+        proj = project_xyz_to_xy()
+        world = Space3D()
+        screen = ProjectionSpace(projection_matrix=proj, parent=world)
+        result = _invert_step(screen)
+        np.testing.assert_array_almost_equal(result, proj)
+
+    def test_non_square_non_projection_raises(self):
+        """Non-square transform on a plain Space raises ValueError."""
+        non_square = project_xyz_to_xy()  # 3x4
+        node = Space(transform=non_square, parent=Space3D())
+        with pytest.raises(ValueError):
+            _invert_step(node)
+
+
+class TestProjectionSpace:
+    """Tests for the ProjectionSpace class."""
+
+    def test_stores_projection_matrix(self):
+        """Constructor stores projection_matrix attribute."""
+        proj = project_xyz_to_xy()
+        world = Space3D()
+        screen = ProjectionSpace(projection_matrix=proj, parent=world)
+        np.testing.assert_array_almost_equal(screen.projection_matrix, proj)
+
+    def test_d_in_is_child_dimension(self):
+        """D_in is the child (screen) dimension (2 for 3D→2D)."""
+        proj = project_xyz_to_xy()  # 3x4: parent=3D, child=2D
+        screen = ProjectionSpace(projection_matrix=proj, parent=Space3D())
+        assert screen.D_in == 2
+
+    def test_d_out_is_parent_dimension(self):
+        """D_out is the parent dimension (3 for 3D→2D)."""
+        proj = project_xyz_to_xy()
+        screen = ProjectionSpace(projection_matrix=proj, parent=Space3D())
+        assert screen.D_out == 3
+
+    def test_parent_is_set(self):
+        """Parent is correctly stored."""
+        world = Space3D()
+        screen = ProjectionSpace(projection_matrix=project_xyz_to_xy(), parent=world)
+        assert screen.parent is world
+
+    def test_is_space_instance(self):
+        """ProjectionSpace is a subclass of Space."""
+        screen = ProjectionSpace(projection_matrix=project_xyz_to_xy(), parent=Space3D())
+        assert isinstance(screen, Space)
+
+    def test_compute_absolute_transform_from_child(self):
+        """compute_absolute_transform() chains pseudo-inverse upward correctly."""
+        proj = project_xyz_to_xy()
+        world = Space3D()
+        screen = ProjectionSpace(projection_matrix=proj, parent=world)
+        pseudo_inv = np.linalg.pinv(proj)
+        # world is identity, so absolute = world.transform @ pseudo_inv = I @ pseudo_inv
+        expected = np.eye(4) @ pseudo_inv
+        np.testing.assert_array_almost_equal(screen.compute_absolute_transform(), expected)
+
+    def test_transform_is_pseudo_inverse(self):
+        """The stored transform is the pseudo-inverse of projection_matrix."""
+        proj = project_xyz_to_xy()
+        screen = ProjectionSpace(projection_matrix=proj, parent=Space3D())
+        expected_pinv = np.linalg.pinv(proj)
+        np.testing.assert_array_almost_equal(screen.transform, expected_pinv)
+
+
+class TestComputeRelativeTransformToWithProjection:
+    """Tests for compute_relative_transform_to with ProjectionSpace in the path."""
+
+    def test_siblings_regression(self):
+        """Two siblings give the same result as the old inv(absolute) @ absolute formula."""
+        root = Space2D()
+        a = Space(transform=translate2D(5, 0), parent=root)
+        b = Space(transform=translate2D(0, 3), parent=root)
+        result = a.compute_relative_transform_to(b)
+        # Old formula reference
+        expected = np.linalg.inv(b.compute_absolute_transform()) @ a.compute_absolute_transform()
+        np.testing.assert_array_almost_equal(result, expected)
+
+    def test_3d_world_to_projection_space(self):
+        """world.compute_relative_transform_to(screen) applies the projection matrix."""
+        proj = project_xyz_to_xy()
+        world = Space3D()
+        screen = ProjectionSpace(projection_matrix=proj, parent=world)
+        result = world.compute_relative_transform_to(screen)
+        # Going from world (=root) to screen: just apply _invert_step(screen) = proj
+        np.testing.assert_array_almost_equal(result, proj)
+
+    def test_projection_space_to_3d_world(self):
+        """screen.compute_relative_transform_to(world) applies the pseudo-inverse."""
+        proj = project_xyz_to_xy()
+        world = Space3D()
+        screen = ProjectionSpace(projection_matrix=proj, parent=world)
+        result = screen.compute_relative_transform_to(world)
+        expected = np.linalg.pinv(proj)
+        np.testing.assert_array_almost_equal(result, expected)
+
+    def test_point_projected_through_scene_graph(self):
+        """A 3D point in world space projected through the scene graph gives xy coords."""
+        proj = project_xyz_to_xy()
+        world = Space3D()
+        screen = ProjectionSpace(projection_matrix=proj, parent=world)
+        T = world.compute_relative_transform_to(screen)
+        pt_homogeneous = np.array([3.0, 5.0, 7.0, 1.0])
+        result = T @ pt_homogeneous
+        # result is 3-vector (2D homogeneous); normalize and strip weight
+        result_cart = result[:2] / result[2]
+        np.testing.assert_array_almost_equal(result_cart, [3.0, 5.0])
+
+    def test_sibling_of_projection_space(self):
+        """Convert between two siblings where one is a ProjectionSpace."""
+        world = Space3D()
+        proj = project_xyz_to_xy()
+        screen = ProjectionSpace(projection_matrix=proj, parent=world)
+        camera = Space(transform=np.eye(4), parent=world)
+        # camera → screen: go up to world, then down into screen
+        T = camera.compute_relative_transform_to(screen)
+        # camera has identity transform, world is root, so camera coords == world coords
+        # => result should equal project_xyz_to_xy() applied directly
+        np.testing.assert_array_almost_equal(T, proj)
