@@ -25,10 +25,13 @@ if ($LASTEXITCODE -ne 0) {
 Write-Host "`nExecuting notebooks..." -ForegroundColor Cyan
 Get-ChildItem notebooks/*.ipynb | ForEach-Object {
     Write-Host "  Running $($_.Name)..." -ForegroundColor Gray
-    uv run jupyter nbconvert --to notebook --execute --ExecutePreprocessor.timeout=60 --inplace $_.FullName 2>&1
-    if ($LASTEXITCODE -ne 0) {
+    $nbOutput = uv run jupyter nbconvert --to notebook --execute --ExecutePreprocessor.timeout=60 --inplace $_.FullName 2>&1
+    $nbExitCode = $LASTEXITCODE
+    # Filter known benign Windows/zmq Proactor warning
+    $nbOutput | Where-Object { $_ -notmatch "RuntimeWarning|Proactor|zmq._future|set_event_loop_policy" } | Write-Host
+    if ($nbExitCode -ne 0) {
         Write-Host "Notebook $($_.Name) failed!" -ForegroundColor Red
-        exit $LASTEXITCODE
+        exit $nbExitCode
     }
 }
 
