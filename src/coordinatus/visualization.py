@@ -8,7 +8,7 @@ Install with: pip install coordinatus[plotting]
 """
 
 from dataclasses import dataclass
-from typing import Optional, List, TYPE_CHECKING
+from typing import Any, Optional, List, TYPE_CHECKING
 import numpy as np
 
 if TYPE_CHECKING:
@@ -184,14 +184,14 @@ class _HierarchyRenderData:
     """Bundled, precomputed data for rendering a Space hierarchy."""
     spaces: list
     labels: dict          # {id(space): display_label}
-    graph: object         # nx.DiGraph (typed as object to avoid import-time errors)
+    graph: Any            # nx.DiGraph (typed as Any to avoid import-time errors)
     pos: dict             # {node_id: (x, y)} layout positions
     node_labels: dict     # {node_id: display_label}
     colors: dict          # {node_id: hex_color}
     reference_space: "Space | None"  # root space for the axes subplot; None = absolute
 
 
-def _build_digraph(spaces: list) -> object:
+def _build_digraph(spaces: list) -> Any:
     """Build a directed graph (edge: parent → child) from a list of Space objects."""
     G = nx.DiGraph()
     for s in spaces:
