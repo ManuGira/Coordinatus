@@ -361,15 +361,23 @@ def _draw_axes_subplot(
     hovered_node: int | None = None,
     xlim: tuple | None = None,
     ylim: tuple | None = None,
-) -> None:
-    """Draw every space's coordinate frame on *ax* using :func:`draw_space_axes`."""
+) -> "dict[int, list]":
+    """Draw every space's coordinate frame on *ax* using :func:`draw_space_axes`.
+
+    Returns a mapping ``{id(space): [artists]}`` so callers can update
+    individual spaces without a full clear+redraw cycle.
+    """
+    space_artists: dict[int, list] = {}
     for space in data.spaces:
         color = data.colors[id(space)]
         label = data.labels[id(space)]
         is_reference = data.reference_space is not None and space is data.reference_space
         is_hovered = hovered_node is not None and id(space) == hovered_node
+        n_lines = len(ax.lines)
+        n_patches = len(ax.patches)
         draw_space_axes(ax, space, reference_space=data.reference_space,
                         color=color, label=label, highlight=is_reference or is_hovered)
+        space_artists[id(space)] = list(ax.lines[n_lines:]) + list(ax.patches[n_patches:])
     ref_name = (
         data.labels.get(id(data.reference_space), "root")
         if data.reference_space is not None
@@ -382,6 +390,7 @@ def _draw_axes_subplot(
     ax.set_xlabel("X")
     ax.set_ylabel("Y")
     ax.set_title(f"Coordinate axes (in {ref_name} space)")
+    return space_artists
 
 
 class _HierarchyInteractor:
@@ -415,6 +424,10 @@ class _HierarchyInteractor:
         )
         self.hovered_node: int | None = None
 
+        # Per-space artist tracking for fast hover updates.
+        self._space_artists: dict[int, list] = {}
+        self._prev_hovered: int | None = None
+
         # Pan state
         self._pan_start_display: tuple[float, float] | None = None
         self._pan_xlim: tuple[float, float] | None = None
@@ -427,6 +440,9 @@ class _HierarchyInteractor:
         fig.canvas.mpl_connect("scroll_event", self._on_scroll)
         fig.canvas.mpl_connect("axes_leave_event", self._on_axes_leave)
 
+        # Initial draw — must happen after event connections so the canvas exists.
+        self._redraw()
+
     # ── drawing helpers ────────────────────────────────────────────────────
 
     def _redraw(self) -> None:
@@ -438,28 +454,74 @@ class _HierarchyInteractor:
             hovered_node=self.hovered_node,
         )
         self.ax_axes.clear()
-        _draw_axes_subplot(self.ax_axes, self.data, hovered_node=self.hovered_node)
+        self._space_artists = _draw_axes_subplot(
+            self.ax_axes, self.data, hovered_node=self.hovered_node
+        )
         self.fig.suptitle(self.title)
         self.fig.canvas.draw_idle()
+        self._prev_hovered = self.hovered_node
 
     def _redraw_hover(self) -> None:
-        """Lightweight redraw that preserves the current pan/zoom state."""
+        """Fast hover update: only redraws the spaces whose highlight state changed.
+
+        The graph subplot is cleared and redrawn (fast — few nodes).
+        The axes subplot is updated in-place: only the artists belonging to the
+        previously-hovered and newly-hovered spaces are removed and redrawn,
+        so the rest of the scene is untouched and no ``ax.clear()`` is needed.
+        """
         xlim = self.ax_axes.get_xlim()
         ylim = self.ax_axes.get_ylim()
+
+        # Graph subplot: clear + redraw (fast — few nodes).
         self.ax_graph.clear()
         _draw_hierarchy_subplot(
             self.ax_graph, self.data,
             selected_node=self.selected_node,
             hovered_node=self.hovered_node,
         )
-        self.ax_axes.clear()
-        _draw_axes_subplot(
-            self.ax_axes, self.data,
-            hovered_node=self.hovered_node,
-            xlim=xlim,
-            ylim=ylim,
-        )
+
+        # Axes subplot: swap only the spaces whose highlight state changed.
+        prev = self._prev_hovered
+        curr = self.hovered_node
+        spaces_to_update: set[int] = set()
+        if prev is not None and prev != curr:
+            spaces_to_update.add(prev)
+        if curr is not None and curr != prev:
+            spaces_to_update.add(curr)
+
+        for space_id in spaces_to_update:
+            for artist in self._space_artists.get(space_id, []):
+                try:
+                    artist.remove()
+                except ValueError:
+                    pass
+            space = self.id_to_space.get(space_id)
+            if space is None:
+                continue
+            color = self.data.colors[space_id]
+            label = self.data.labels.get(space_id, "")
+            is_ref = (
+                self.data.reference_space is not None
+                and space is self.data.reference_space
+            )
+            is_hov = space_id == curr
+            n_lines = len(self.ax_axes.lines)
+            n_patches = len(self.ax_axes.patches)
+            draw_space_axes(
+                self.ax_axes, space,
+                reference_space=self.data.reference_space,
+                color=color, label=label,
+                highlight=is_ref or is_hov,
+            )
+            self._space_artists[space_id] = (
+                list(self.ax_axes.lines[n_lines:])
+                + list(self.ax_axes.patches[n_patches:])
+            )
+
+        self.ax_axes.set_xlim(xlim)
+        self.ax_axes.set_ylim(ylim)
         self.fig.canvas.draw_idle()
+        self._prev_hovered = curr
 
     # ── hit-testing helpers ────────────────────────────────────────────────
 
@@ -634,17 +696,11 @@ def draw_space_hierarchy(
 
     id_to_space = {id(s): s for s in spaces}
 
-    _draw_hierarchy_subplot(
-        ax_graph, data,
-        selected_node=id(data.reference_space) if data.reference_space is not None else None,
-    )
-    _draw_axes_subplot(ax_axes, data)
-    fig.suptitle(title)
-    plt.tight_layout()
-
     # Keep a reference so the interactor is not garbage-collected.
+    # The interactor performs the initial draw in its __init__.
     fig._hierarchy_interactor = _HierarchyInteractor(  # type: ignore[attr-defined]
         fig, ax_graph, ax_axes, data, title, id_to_space
     )
-
+    fig.suptitle(title)
+    plt.tight_layout()
     plt.show()
