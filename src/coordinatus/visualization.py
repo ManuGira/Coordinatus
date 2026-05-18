@@ -11,6 +11,11 @@ from dataclasses import dataclass
 from typing import Any, Optional, List, TYPE_CHECKING
 import numpy as np
 
+from matplotlib.textpath import TextPath
+from matplotlib.patches import PathPatch
+
+from coordinatus.transforms import scale
+
 if TYPE_CHECKING:
     from matplotlib.axes import Axes
 
@@ -28,7 +33,8 @@ except ImportError:  # pragma: no cover
     _HAS_NETWORKX = False
     nx = None  # type: ignore
 
-from .space import Space, Space2D
+from .space import Space, Space2D 
+from .transforms import rotate2D, scale2D, translate2D
 from .coordinate import Point, Vector
 
 
@@ -70,51 +76,84 @@ def draw_space_axes(
     """
     _check_matplotlib()
     
+    if reference_space is None:
+        reference_space = Space2D() 
+
     # Use absolute space if space is None
     if space is None:
-        space = Space2D()
+        space = Space2D(parent=reference_space)
     
     # Get space origin and unit vectors in reference space
     origin = Point(np.array([0, 0]), space=space)
-    x_axis = Vector(np.array([1, 0]), space=space)
-    y_axis = Vector(np.array([0, 1]), space=space)
+    y_axis_space = Space(transform=rotate2D(-np.pi/2) @ scale2D(-1, 1), parent=space)
     
-    # Convert to reference space coordinates
-    if reference_space is None:
-        origin_coords = origin.to_absolute().coords
-        x_axis_coords = x_axis.to_absolute().coords
-        y_axis_coords = y_axis.to_absolute().coords
-    else:
-        origin_coords = origin.relative_to(reference_space).coords
-        x_axis_coords = x_axis.relative_to(reference_space).coords
-        y_axis_coords = y_axis.relative_to(reference_space).coords
+    def draw_text(ax, position_xy, direction_xy, text, color, alpha):
+        import matplotlib.transforms as mtransforms
+        size = np.linalg.norm(direction_xy)
+        angle = np.arctan2(direction_xy[1], direction_xy[0])
 
-    # Draw origin
-    ax.plot(origin_coords[0], origin_coords[1], 'o', 
-            color=color, label=f'{label} origin', zorder=5, alpha=alpha)
-    
-    # Draw x-axis
-    head_size = 0.1
-    ax.arrow(origin_coords[0], origin_coords[1], 
-             x_axis_coords[0] * (1 - head_size), x_axis_coords[1] * (1 - head_size),
-             head_width=head_size, head_length=head_size,
-             fc=color, ec=color, alpha=alpha)
-    
-    # Draw y-axis
-    ax.arrow(origin_coords[0], origin_coords[1],
-             y_axis_coords[0] * (1 - head_size), y_axis_coords[1] * (1 - head_size),
-             head_width=head_size, head_length=head_size,
-             fc=color, ec=color, alpha=alpha)
-    
-    # Label axes
-    ax.text(origin_coords[0] + x_axis_coords[0] + 0.2,
-            origin_coords[1] + x_axis_coords[1],
-            f'{label} X', fontsize=9, color=color, fontweight='bold', alpha=alpha)
-    ax.text(origin_coords[0] + y_axis_coords[0],
-            origin_coords[1] + y_axis_coords[1] + 0.2,
-            f'{label} Y', fontsize=9, color=color, fontweight='bold', alpha=alpha)
+        tp = TextPath(position_xy, text, size=size)
+        transform = (
+            mtransforms.Affine2D()
+            .rotate_around(position_xy[0], position_xy[1], angle)
+            + ax.transData
+        )
+        ax.add_patch(PathPatch(tp, color=color, alpha=alpha, transform=transform))
 
+    
+    def draw_arrow_10(ax: 'Axes', reference_space: Space, space: Space, label="", color="black", alpha=1):
+        """ Use a poly line to draw an arrow with a head size relative to the vector length."""
+            
+        head_size = 0.1
+        start = Point(np.array([0, 0]), space=space).relative_to(reference_space)
+        end = Point(np.array([1-head_size, 0]), space=space).relative_to(reference_space)
 
+        xs, ys = [start.coords[0], end.coords[0]], [start.coords[1], end.coords[1]]
+        # First draw a single line for the arrow body
+        ax.plot(xs, ys, color=color, alpha=alpha)
+
+        head_points = Point(np.array([
+            [1, 1-head_size, 1-head_size, 1],
+            [0, head_size/3, -head_size/3, 0],
+        ]), space=space).relative_to(reference_space)
+        ax.fill(head_points.coords[0], head_points.coords[1], color=color, alpha=alpha)
+
+        start_txt = Point(np.array([0.7, -0.1]), space=space).relative_to(reference_space)
+        vector = (end-start)*0.05
+        draw_text(ax, start_txt.coords, vector.coords, label, color, alpha)
+
+    def draw_grid(ax: 'Axes', reference_space: Space, space: Space, color="gray", alpha=0.3):
+        """Draw a grid of lines at every integer coordinate in the given space."""
+        N = 2
+
+        for x in range(-N, N+1):
+            start = Point(np.array([x, -N-0.2]), space=space).relative_to(reference_space)
+            end = Point(np.array([x, N+0.2]), space=space).relative_to(reference_space)
+            ax.plot([start.coords[0], end.coords[0]], [start.coords[1], end.coords[1]], color=color, alpha=alpha)
+        for y in range(-N, N+1):
+            start = Point(np.array([-N-0.2, y]), space=space).relative_to(reference_space)
+            end = Point(np.array([N+0.2, y]), space=space).relative_to(reference_space)
+            ax.plot([start.coords[0], end.coords[0]], [start.coords[1], end.coords[1]], color=color, alpha=alpha)
+
+    origin_size = 0.02
+    origin_points = Point(np.array([
+            [origin_size, 0, -origin_size, 0, origin_size],
+            [0, origin_size, 0, -origin_size, 0],
+        ]), space=space).relative_to(reference_space)       
+    ax.fill(origin_points.coords[0], origin_points.coords[1], color=color, alpha=alpha) 
+    
+    draw_text(
+        ax, 
+        (origin + np.array([-0.1, -0.1])).relative_to(reference_space).coords, 
+        Vector(np.array([0.08, 0]), space=space).relative_to(reference_space).coords, 
+        label, color, alpha)
+    
+    draw_arrow_10(ax, reference_space, space, color=color, alpha=alpha, label=f"X axis")
+    draw_arrow_10(ax, reference_space, y_axis_space, color=color, alpha=alpha, label=f"Y axis")
+
+    draw_grid(ax, reference_space, space, color=color, alpha=alpha*0.3)
+
+    
 def draw_points(
     ax: 'Axes',  # type: ignore[name-defined]
     points: List[Point],
@@ -313,7 +352,6 @@ def _draw_axes_subplot(ax, data: _HierarchyRenderData) -> None:
     ax.set_xlabel("X")
     ax.set_ylabel("Y")
     ax.set_title(f"Coordinate axes (in {ref_name} space)")
-    ax.legend(fontsize=7, loc="best")
 
 
 def draw_space_hierarchy(
