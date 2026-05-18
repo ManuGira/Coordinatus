@@ -47,6 +47,15 @@ To run all tests at once the command `uv run pytest tests` works but it is prefe
 ```
 It will run all tests, generate coverage reports, and perform linting checks.
 
+The `ci.ps1` script accepts switches to skip individual steps:
+```powershell
+./ci.ps1 -SkipTests        # skip pytest
+./ci.ps1 -SkipStyle        # skip ruff
+./ci.ps1 -SkipTypes        # skip ty
+./ci.ps1 -SkipNotebooks    # skip notebook execution
+./ci.ps1 -SkipTests -SkipNotebooks  # combine as needed
+```
+
 For any automation or AI agent execution, always use the `uv run` command format.
 
 ## Executing Notebooks
