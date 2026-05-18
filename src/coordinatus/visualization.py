@@ -54,6 +54,7 @@ def draw_space_axes(
     color: str = 'blue',
     label: str = 'Space',
     alpha: float = 0.5,
+    highlight: bool = False,
 ) -> None:
     """Draw a space's origin and axes from a given reference space's perspective.
     
@@ -135,6 +136,10 @@ def draw_space_axes(
             end = Point(np.array([N+0.2, y]), space=space).relative_to(reference_space)
             ax.plot([start.coords[0], end.coords[0]], [start.coords[1], end.coords[1]], color=color, alpha=alpha)
 
+    if highlight:
+        draw_grid(ax, reference_space, space, color=color, alpha=alpha*0.3)
+        alpha = 1
+
     origin_size = 0.02
     origin_points = Point(np.array([
             [origin_size, 0, -origin_size, 0, origin_size],
@@ -151,7 +156,6 @@ def draw_space_axes(
     draw_arrow_10(ax, reference_space, space, color=color, alpha=alpha, label=f"X axis")
     draw_arrow_10(ax, reference_space, y_axis_space, color=color, alpha=alpha, label=f"Y axis")
 
-    draw_grid(ax, reference_space, space, color=color, alpha=alpha*0.3)
 
     
 def draw_points(
@@ -316,9 +320,23 @@ def _compute_figure_size(pos: dict) -> tuple[float, float]:
     return max(4.0, x_span * 1.8), max(3.0, (depth + 1) * 1.2)
 
 
-def _draw_hierarchy_subplot(ax, data: _HierarchyRenderData) -> None:
+def _draw_hierarchy_subplot(
+    ax, data: _HierarchyRenderData, selected_node=None, hovered_node=None
+) -> None:
     """Draw the networkx directed graph (parent → child) on *ax*."""
     node_color_list = [data.colors[n] for n in data.graph.nodes]
+    edgecolors = []
+    linewidths = []
+    for n in data.graph.nodes:
+        if n == selected_node:
+            edgecolors.append("black")
+            linewidths.append(3.0)
+        elif n == hovered_node:
+            edgecolors.append("grey")
+            linewidths.append(2.0)
+        else:
+            edgecolors.append("none")
+            linewidths.append(1.0)
     nx.draw(
         data.graph, data.pos, ax=ax,
         labels=data.node_labels,
@@ -331,27 +349,233 @@ def _draw_hierarchy_subplot(ax, data: _HierarchyRenderData) -> None:
         arrowsize=18,
         edge_color="#888888",
         width=2,
+        edgecolors=edgecolors,
+        linewidths=linewidths,
     )
-    ax.set_title("Hierarchy")
+    ax.set_title("Hierarchy (click a node to set as reference)")
 
 
-def _draw_axes_subplot(ax, data: _HierarchyRenderData) -> None:
+def _draw_axes_subplot(
+    ax,
+    data: _HierarchyRenderData,
+    hovered_node: int | None = None,
+    xlim: tuple | None = None,
+    ylim: tuple | None = None,
+) -> None:
     """Draw every space's coordinate frame on *ax* using :func:`draw_space_axes`."""
     for space in data.spaces:
         color = data.colors[id(space)]
         label = data.labels[id(space)]
+        is_reference = data.reference_space is not None and space is data.reference_space
+        is_hovered = hovered_node is not None and id(space) == hovered_node
         draw_space_axes(ax, space, reference_space=data.reference_space,
-                        color=color, label=label)
+                        color=color, label=label, highlight=is_reference or is_hovered)
     ref_name = (
         data.labels.get(id(data.reference_space), "root")
         if data.reference_space is not None
         else "absolute"
     )
     ax.set_aspect("equal")
+    ax.set_xlim(xlim if xlim is not None else (-2.5, 2.5))
+    ax.set_ylim(ylim if ylim is not None else (-2.5, 2.5))
     ax.grid(True, alpha=0.3)
     ax.set_xlabel("X")
     ax.set_ylabel("Y")
     ax.set_title(f"Coordinate axes (in {ref_name} space)")
+
+
+class _HierarchyInteractor:
+    """Manages all interactive state for :func:`draw_space_hierarchy`.
+
+    Handles:
+    - Left-click on either panel → change the reference space.
+    - Hover over either panel → highlight the space under the cursor.
+    - Left-click drag on the axes panel → pan.
+    - Scroll wheel on the axes panel → zoom centred on the cursor.
+    """
+
+    def __init__(
+        self,
+        fig,
+        ax_graph,
+        ax_axes,
+        data: _HierarchyRenderData,
+        title: str,
+        id_to_space: dict,
+    ) -> None:
+        self.fig = fig
+        self.ax_graph = ax_graph
+        self.ax_axes = ax_axes
+        self.data = data
+        self.title = title
+        self.id_to_space = id_to_space
+
+        self.selected_node: int | None = (
+            id(data.reference_space) if data.reference_space is not None else None
+        )
+        self.hovered_node: int | None = None
+
+        # Pan state
+        self._pan_start_display: tuple[float, float] | None = None
+        self._pan_xlim: tuple[float, float] | None = None
+        self._pan_ylim: tuple[float, float] | None = None
+        self._pan_inv_transform = None  # captured at press time to avoid drift
+
+        fig.canvas.mpl_connect("button_press_event", self._on_press)
+        fig.canvas.mpl_connect("motion_notify_event", self._on_motion)
+        fig.canvas.mpl_connect("button_release_event", self._on_release)
+        fig.canvas.mpl_connect("scroll_event", self._on_scroll)
+        fig.canvas.mpl_connect("axes_leave_event", self._on_axes_leave)
+
+    # ── drawing helpers ────────────────────────────────────────────────────
+
+    def _redraw(self) -> None:
+        """Full redraw: resets the axes view to [-2.5, 2.5]."""
+        self.ax_graph.clear()
+        _draw_hierarchy_subplot(
+            self.ax_graph, self.data,
+            selected_node=self.selected_node,
+            hovered_node=self.hovered_node,
+        )
+        self.ax_axes.clear()
+        _draw_axes_subplot(self.ax_axes, self.data, hovered_node=self.hovered_node)
+        self.fig.suptitle(self.title)
+        self.fig.canvas.draw_idle()
+
+    def _redraw_hover(self) -> None:
+        """Lightweight redraw that preserves the current pan/zoom state."""
+        xlim = self.ax_axes.get_xlim()
+        ylim = self.ax_axes.get_ylim()
+        self.ax_graph.clear()
+        _draw_hierarchy_subplot(
+            self.ax_graph, self.data,
+            selected_node=self.selected_node,
+            hovered_node=self.hovered_node,
+        )
+        self.ax_axes.clear()
+        _draw_axes_subplot(
+            self.ax_axes, self.data,
+            hovered_node=self.hovered_node,
+            xlim=xlim,
+            ylim=ylim,
+        )
+        self.fig.canvas.draw_idle()
+
+    # ── hit-testing helpers ────────────────────────────────────────────────
+
+    def _node_at_graph_pos(self, cx: float, cy: float) -> int | None:
+        """Return the graph node id closest to (cx, cy) in graph-axes coords, or None."""
+        if not self.data.pos:
+            return None
+        closest = min(
+            self.data.pos,
+            key=lambda n: (cx - self.data.pos[n][0]) ** 2 + (cy - self.data.pos[n][1]) ** 2,
+        )
+        dist_sq = (
+            (cx - self.data.pos[closest][0]) ** 2
+            + (cy - self.data.pos[closest][1]) ** 2
+        )
+        return closest if dist_sq <= 0.25 and closest in self.id_to_space else None
+
+    def _node_at_axes_pos(self, cx: float, cy: float) -> int | None:
+        """Return id(space) whose origin is closest to (cx, cy) in reference coords, or None."""
+        best_id: int | None = None
+        best_dist_sq = 0.15 ** 2  # threshold in data-units squared
+        for space in self.data.spaces:
+            try:
+                if self.data.reference_space is not None:
+                    origin = Point(np.array([0.0, 0.0]), space=space).relative_to(
+                        self.data.reference_space
+                    )
+                else:
+                    origin = Point(np.array([0.0, 0.0]), space=space).to_absolute()
+                ox, oy = float(origin.coords[0]), float(origin.coords[1])
+                dist_sq = (cx - ox) ** 2 + (cy - oy) ** 2
+                if dist_sq < best_dist_sq:
+                    best_dist_sq = dist_sq
+                    best_id = id(space)
+            except (ValueError, IndexError):
+                pass
+        return best_id
+
+    # ── selection ─────────────────────────────────────────────────────────
+
+    def _select_node(self, node_id: int) -> None:
+        self.selected_node = node_id
+        self.data.reference_space = self.id_to_space[node_id]
+        self._redraw()
+
+    # ── event handlers ────────────────────────────────────────────────────
+
+    def _on_press(self, event) -> None:
+        if event.button != 1:
+            return
+        if event.inaxes is self.ax_graph and event.xdata is not None:
+            node = self._node_at_graph_pos(event.xdata, event.ydata)
+            if node is not None:
+                self._select_node(node)
+        elif event.inaxes is self.ax_axes and event.xdata is not None:
+            node = self._node_at_axes_pos(event.xdata, event.ydata)
+            if node is not None:
+                self._select_node(node)
+            else:
+                self._start_pan(event)
+
+    def _start_pan(self, event) -> None:
+        if event.x is None:
+            return
+        self._pan_start_display = (event.x, event.y)
+        self._pan_xlim = self.ax_axes.get_xlim()
+        self._pan_ylim = self.ax_axes.get_ylim()
+        # Capture the data transform at press time so deltas are stable throughout the drag.
+        self._pan_inv_transform = self.ax_axes.transData.inverted()
+
+    def _on_motion(self, event) -> None:
+        # Pan takes priority over hover detection.
+        if self._pan_start_display is not None:
+            if event.x is not None:
+                start_data = self._pan_inv_transform.transform(self._pan_start_display)
+                curr_data = self._pan_inv_transform.transform((event.x, event.y))
+                dx = start_data[0] - curr_data[0]
+                dy = start_data[1] - curr_data[1]
+                self.ax_axes.set_xlim(self._pan_xlim[0] + dx, self._pan_xlim[1] + dx)
+                self.ax_axes.set_ylim(self._pan_ylim[0] + dy, self._pan_ylim[1] + dy)
+                self.fig.canvas.draw_idle()
+            return
+
+        # Hover detection.
+        new_hover: int | None = None
+        if event.inaxes is self.ax_graph and event.xdata is not None:
+            new_hover = self._node_at_graph_pos(event.xdata, event.ydata)
+        elif event.inaxes is self.ax_axes and event.xdata is not None:
+            new_hover = self._node_at_axes_pos(event.xdata, event.ydata)
+
+        if new_hover != self.hovered_node:
+            self.hovered_node = new_hover
+            self._redraw_hover()
+
+    def _on_release(self, event) -> None:
+        if event.button == 1:
+            self._pan_start_display = None
+            self._pan_xlim = None
+            self._pan_ylim = None
+            self._pan_inv_transform = None
+
+    def _on_axes_leave(self, event) -> None:
+        if self.hovered_node is not None:
+            self.hovered_node = None
+            self._redraw_hover()
+
+    def _on_scroll(self, event) -> None:
+        if event.inaxes is not self.ax_axes or event.xdata is None:
+            return
+        factor = 0.9 if event.step > 0 else 1.1
+        cx, cy = event.xdata, event.ydata
+        xlim = self.ax_axes.get_xlim()
+        ylim = self.ax_axes.get_ylim()
+        self.ax_axes.set_xlim(cx + (xlim[0] - cx) * factor, cx + (xlim[1] - cx) * factor)
+        self.ax_axes.set_ylim(cy + (ylim[0] - cy) * factor, cy + (ylim[1] - cy) * factor)
+        self.fig.canvas.draw_idle()
 
 
 def draw_space_hierarchy(
@@ -365,6 +589,15 @@ def draw_space_hierarchy(
     The right panel draws every space's coordinate frame as seen from the root
     space (or in absolute coordinates when there are multiple roots). Node colours
     are shared across both panels so each space is easy to identify.
+
+    **Interactions on the axes panel (right):**
+
+    - Left-click drag → pan.
+    - Scroll wheel → zoom centred on the cursor.
+
+    **Interactions on the hierarchy panel (left):**
+
+    - Left-click a node → set that space as the reference for the axes panel.
 
     Requires both matplotlib and networkx (``pip install coordinatus[plotting]``).
 
@@ -398,8 +631,20 @@ def draw_space_hierarchy(
     panel_w, panel_h = _compute_figure_size(data.pos)
 
     fig, (ax_graph, ax_axes) = plt.subplots(1, 2, figsize=(panel_w * 2 + 1, panel_h))
-    _draw_hierarchy_subplot(ax_graph, data)
+
+    id_to_space = {id(s): s for s in spaces}
+
+    _draw_hierarchy_subplot(
+        ax_graph, data,
+        selected_node=id(data.reference_space) if data.reference_space is not None else None,
+    )
     _draw_axes_subplot(ax_axes, data)
     fig.suptitle(title)
     plt.tight_layout()
+
+    # Keep a reference so the interactor is not garbage-collected.
+    fig._hierarchy_interactor = _HierarchyInteractor(  # type: ignore[attr-defined]
+        fig, ax_graph, ax_axes, data, title, id_to_space
+    )
+
     plt.show()
