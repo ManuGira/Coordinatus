@@ -645,8 +645,7 @@ class TestHierarchyInteractor:
             event.y = 150.0
             interactor._start_pan(event)
             assert interactor._pan_start_display == (200.0, 150.0)
-            assert interactor._pan_xlim is not None
-            assert interactor._pan_ylim is not None
+            assert interactor._pan_M0 is not None
             assert interactor._pan_inv_transform is not None
         finally:
             plt.close(fig)
@@ -664,17 +663,17 @@ class TestHierarchyInteractor:
     def test_on_motion_pan_moves_limits(self):
         interactor, fig, root, child = self._make_interactor()
         try:
-            xlim_before = interactor.ax_axes.get_xlim()
+            M_before = interactor._view_space.transform.copy()
             press = Mock()
             press.x = 200.0
             press.y = 150.0
             interactor._start_pan(press)
             motion = Mock()
-            motion.x = 250.0  # moved 50 px right → data shifts left
+            motion.x = 250.0  # moved 50 px right → view shifts
             motion.y = 150.0
             interactor._on_motion(motion)
-            xlim_after = interactor.ax_axes.get_xlim()
-            assert xlim_before != xlim_after
+            M_after = interactor._view_space.transform
+            assert not np.allclose(M_before, M_after)
         finally:
             plt.close(fig)
 
@@ -689,8 +688,7 @@ class TestHierarchyInteractor:
             release.button = 1
             interactor._on_release(release)
             assert interactor._pan_start_display is None
-            assert interactor._pan_xlim is None
-            assert interactor._pan_ylim is None
+            assert interactor._pan_M0 is None
             assert interactor._pan_inv_transform is None
         finally:
             plt.close(fig)

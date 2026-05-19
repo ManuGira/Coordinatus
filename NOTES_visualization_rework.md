@@ -19,7 +19,7 @@ parts: 1
 - Step 1 ✅ done May 19 2026; animation code removed, CI passing, 100% test coverage
 - Step 2 ✅ done May 19 2026; `_view_space` added to `__init__`, `_pan_xlim`/`_pan_ylim` removed from `__init__`, 84 tests passing
 - Step 3 ✅ done May 19 2026; `_draw_axes_subplot` takes `view_space`, fixed limits, `_node_at_axes_pos` and `_redraw*` use `_view_space`, graceful skip for unrelated spaces, 84 tests passing
-- Steps 4–7 not started; Step 7 deferred until Steps 1–6 pass tests
+- Steps 4–8 not started; Steps 7–8 deferred until Steps 1–6 pass tests
 
 ## Current Architecture (as of May 19 2026)
 - `draw_space_hierarchy(spaces, labels, title)`: two subplots — `ax_graph` (networkx directed graph left), `ax_axes` (coordinate frames via `draw_space_axes` right)
@@ -83,6 +83,21 @@ parts: 1
 ### Step 6 — Update selection
 - `_select_node`: `if new_ref is self._view_space.parent: return`; `self.selected_node = node_id`; `self.data.reference_space = new_ref` (graph highlight only); `self._view_space = Space(transform=np.eye(3), parent=new_ref)`; call `_redraw()`
 
-### Step 7 — Re-add animation (FUTURE, after Steps 1–6 pass tests)
+### Step 7 — Full-viewport adaptive grid with tick labels (FUTURE, after Steps 1–6 pass tests)
+**Scope**: only `draw_space_axes` (the `draw_grid` inner helper + a new `format_tick` helper).  No changes to `_HierarchyInteractor` or `_draw_axes_subplot`.
+
+**Goal**: when a space is highlighted (reference or hovered), the grid covers the entire visible viewport `[-2.5, 2.5]` in view-space data-coords, grid spacing adapts to zoom level, and coordinate tick labels (0, 1, 2 …) are shown on both axes.
+
+Since Step 3 fixes `reference_space = view_space` inside `draw_space_axes`, the viewport is always `±2.5` in `reference_space` coords — no new parameters needed.
+
+**Algorithm** (`draw_grid` rewrite):
+1. **Viewport corners in drawing-space coords**: batch-convert the four viewport corners `(±2.5, ±2.5)` from `reference_space` to `space` using `Point(np.array([[2.5,2.5,-2.5,-2.5],[2.5,-2.5,2.5,-2.5]]), space=reference_space).relative_to(space)`.  Extract `x_min, x_max, y_min, y_max` from the resulting coords.  Wrap in `try/except ValueError` — if spaces are unrelated, skip grid silently.
+2. **Grid step** (power of 10): `import math`; `range_ = max(x_max - x_min, y_max - y_min, 1e-9)`; `grid_step = 10 ** math.floor(math.log10(range_ / 8))`; clamp: `grid_step = max(grid_step, 1e-9)`.  This targets ≤ ~8 visible grid lines per axis.
+3. **Grid lines**: let `kx_lo = math.floor(x_min / grid_step) - 1`, `kx_hi = math.ceil(x_max / grid_step) + 1` (± 1 extra to overdraw past viewport edges).  For each integer `k` in `[kx_lo, kx_hi]`, draw a vertical line at `x = k * grid_step` from `y = y_min - grid_step` to `y = y_max + grid_step` in **space** coords (mirrors and grid are already drawn in space coords via `Point.relative_to`).  Mirror for horizontal lines with `ky_lo / ky_hi` over `[y_min, y_max]`.
+4. **Tick labels** — `format_tick(v: float) -> str`: `f"{v:.3g}"` (auto-picks integer vs decimal notation cleanly).  For vertical lines: place label at `(k * grid_step, 0)` in space coords (on the space's x-axis); if `0` is not in `[y_min, y_max]` clamp to `max(y_min, min(y_max, 0))`.  For horizontal lines: place at `(0, k * grid_step)` similarly clamped to x-range.  Skip `k == 0` on both axes (origin already labelled).  Draw using existing `draw_text` helper with a small `size` (≈ `grid_step * 0.25`) and angle = 0 for x-ticks, `π/2` for y-ticks.
+
+**Note on decimation / sub-grid**: the `10^floor(log10(…/8))` formula handles both zoom-out (coarser grid, e.g. step = 100) and zoom-in (finer grid, e.g. step = 0.01) automatically; no separate decimation or sub-grid logic needed.
+
+### Step 8 — Re-add animation (FUTURE, after Steps 1–7 pass tests)
 - `_select_node`: compute `M_start` = old view expressed in new parent's frame; tween `_view_space.transform` from `M_start` → `np.eye(3)` using `_interpolate_trks2d(M_start, np.eye(3), t)` per frame; call `_redraw()` each frame; use blitting (capture static bg once, swap only space artists)
 - Re-add `_decompose_trks2d`, `_interpolate_trks2d`, `trs2D`/`trks2D` imports at this point (functions were correct; only animation wiring was messy)

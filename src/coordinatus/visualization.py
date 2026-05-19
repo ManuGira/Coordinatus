@@ -33,7 +33,7 @@ except ImportError:  # pragma: no cover
     nx = None  # type: ignore
 
 from .space import Space, Space2D 
-from .transforms import rotate2D, scale2D
+from .transforms import rotate2D, scale2D, translate2D
 from .coordinate import Point, Vector
 
 
@@ -602,8 +602,7 @@ class _HierarchyInteractor:
         if event.x is None:
             return
         self._pan_start_display = (event.x, event.y)
-        self._pan_xlim = self.ax_axes.get_xlim()
-        self._pan_ylim = self.ax_axes.get_ylim()
+        self._pan_M0 = self._view_space.transform.copy()
         # Capture the data transform at press time so deltas are stable throughout the drag.
         self._pan_inv_transform = self.ax_axes.transData.inverted()
 
@@ -612,15 +611,13 @@ class _HierarchyInteractor:
         if self._pan_start_display is not None:
             if event.x is not None:
                 assert self._pan_inv_transform is not None
-                assert self._pan_xlim is not None
-                assert self._pan_ylim is not None
+                assert self._pan_M0 is not None
                 start_data = self._pan_inv_transform.transform(self._pan_start_display)
                 curr_data = self._pan_inv_transform.transform((event.x, event.y))
                 dx = start_data[0] - curr_data[0]
                 dy = start_data[1] - curr_data[1]
-                self.ax_axes.set_xlim(self._pan_xlim[0] + dx, self._pan_xlim[1] + dx)
-                self.ax_axes.set_ylim(self._pan_ylim[0] + dy, self._pan_ylim[1] + dy)
-                self.fig.canvas.draw_idle()
+                self._view_space.transform = translate2D(dx, dy) @ self._pan_M0
+                self._redraw()
             return
 
         # Hover detection.
@@ -637,8 +634,7 @@ class _HierarchyInteractor:
     def _on_release(self, event) -> None:
         if event.button == 1:
             self._pan_start_display = None
-            self._pan_xlim = None
-            self._pan_ylim = None
+            self._pan_M0 = None
             self._pan_inv_transform = None
 
     def _on_axes_leave(self, event) -> None:
