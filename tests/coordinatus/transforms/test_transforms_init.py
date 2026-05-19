@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 from coordinatus.transforms import (
     translate2D, rotate2D, scale2D, shear2D, trs2D, trks2D, ts1D,
-    _decompose_trks2d, _interpolate_trks2d,
+    decompose_trks2d, interpolate_trks2d,
 )
 
 class TestTRS2D:
@@ -228,7 +228,7 @@ class TestDecomposeTrks2d:
 
     def test_identity_matrix(self):
         """Decomposing the identity returns all-zero offsets and unit scales."""
-        tx, ty, angle, kx, sx, sy = _decompose_trks2d(np.eye(3))
+        tx, ty, angle, kx, sx, sy = decompose_trks2d(np.eye(3))
         assert tx == pytest.approx(0.0)
         assert ty == pytest.approx(0.0)
         assert angle == pytest.approx(0.0)
@@ -239,7 +239,7 @@ class TestDecomposeTrks2d:
     def test_roundtrip_translation_only(self):
         """Round-trip: build translation matrix, decompose, check parameters."""
         M = trks2D(tx=3.0, ty=-5.0)
-        tx, ty, angle, kx, sx, sy = _decompose_trks2d(M)
+        tx, ty, angle, kx, sx, sy = decompose_trks2d(M)
         assert tx == pytest.approx(3.0)
         assert ty == pytest.approx(-5.0)
         assert angle == pytest.approx(0.0)
@@ -251,7 +251,7 @@ class TestDecomposeTrks2d:
         """Round-trip: build rotation matrix, decompose, check angle."""
         angle_in = np.pi / 6
         M = trks2D(angle_rad=angle_in)
-        tx, ty, angle, kx, sx, sy = _decompose_trks2d(M)
+        tx, ty, angle, kx, sx, sy = decompose_trks2d(M)
         assert angle == pytest.approx(angle_in)
         assert tx == pytest.approx(0.0)
         assert ty == pytest.approx(0.0)
@@ -262,7 +262,7 @@ class TestDecomposeTrks2d:
     def test_roundtrip_scale_only(self):
         """Round-trip: build scale matrix, decompose, check scale factors."""
         M = trks2D(sx=2.0, sy=3.0)
-        tx, ty, angle, kx, sx, sy = _decompose_trks2d(M)
+        tx, ty, angle, kx, sx, sy = decompose_trks2d(M)
         assert sx == pytest.approx(2.0)
         assert sy == pytest.approx(3.0)
         assert kx == pytest.approx(0.0)
@@ -271,7 +271,7 @@ class TestDecomposeTrks2d:
     def test_roundtrip_shear_only(self):
         """Round-trip: build shear matrix (kx only), decompose, check kx."""
         M = trks2D(kx=0.75, ky=0.0)
-        tx, ty, angle, kx, sx, sy = _decompose_trks2d(M)
+        tx, ty, angle, kx, sx, sy = decompose_trks2d(M)
         assert kx == pytest.approx(0.75)
         assert angle == pytest.approx(0.0)
         assert sx == pytest.approx(1.0)
@@ -281,7 +281,7 @@ class TestDecomposeTrks2d:
         """Round-trip with all components non-trivial."""
         params_in = dict(tx=4.0, ty=-2.0, angle_rad=np.pi / 5, kx=0.3, ky=0.0, sx=1.5, sy=2.5)
         M = trks2D(**params_in)
-        tx, ty, angle, kx, sx, sy = _decompose_trks2d(M)
+        tx, ty, angle, kx, sx, sy = decompose_trks2d(M)
         assert tx == pytest.approx(params_in["tx"])
         assert ty == pytest.approx(params_in["ty"])
         assert angle == pytest.approx(params_in["angle_rad"])
@@ -292,7 +292,7 @@ class TestDecomposeTrks2d:
     def test_negative_scale(self):
         """Decomposition preserves the sign of sy via det / sx."""
         M = trks2D(sx=2.0, sy=-1.5)
-        tx, ty, angle, kx, sx, sy = _decompose_trks2d(M)
+        tx, ty, angle, kx, sx, sy = decompose_trks2d(M)
         assert sx == pytest.approx(2.0)
         assert sy == pytest.approx(-1.5)
 
@@ -307,21 +307,21 @@ class TestInterpolateTrks2d:
         """At t=0 the result equals M0."""
         M0 = self._make_matrix(tx=1.0, ty=2.0, angle_rad=0.3, kx=0.1, sx=1.5, sy=2.0)
         M1 = self._make_matrix(tx=5.0, ty=-1.0, angle_rad=1.0, kx=0.5, sx=3.0, sy=0.5)
-        result = _interpolate_trks2d(M0, M1, 0.0)
+        result = interpolate_trks2d(M0, M1, 0.0)
         np.testing.assert_array_almost_equal(result, M0)
 
     def test_t1_returns_M1(self):
         """At t=1 the result equals M1."""
         M0 = self._make_matrix(tx=1.0, ty=2.0, angle_rad=0.3, kx=0.1, sx=1.5, sy=2.0)
         M1 = self._make_matrix(tx=5.0, ty=-1.0, angle_rad=1.0, kx=0.5, sx=3.0, sy=0.5)
-        result = _interpolate_trks2d(M0, M1, 1.0)
+        result = interpolate_trks2d(M0, M1, 1.0)
         np.testing.assert_array_almost_equal(result, M1)
 
     def test_t_half_midpoint(self):
         """At t=0.5 smoothstep evaluates to 0.5, giving the exact midpoint of all components."""
         M0 = self._make_matrix(tx=0.0, ty=0.0, angle_rad=0.0, kx=0.0, sx=1.0, sy=1.0)
         M1 = self._make_matrix(tx=4.0, ty=2.0, angle_rad=np.pi / 2, kx=1.0, sx=3.0, sy=3.0)
-        result = _interpolate_trks2d(M0, M1, 0.5)
+        result = interpolate_trks2d(M0, M1, 0.5)
         expected = self._make_matrix(tx=2.0, ty=1.0, angle_rad=np.pi / 4, kx=0.5, sx=2.0, sy=2.0)
         np.testing.assert_array_almost_equal(result, expected)
 
@@ -329,14 +329,14 @@ class TestInterpolateTrks2d:
         """Interpolated matrix is always 3x3."""
         M0 = np.eye(3)
         M1 = self._make_matrix(tx=1.0, ty=1.0)
-        result = _interpolate_trks2d(M0, M1, 0.5)
+        result = interpolate_trks2d(M0, M1, 0.5)
         assert result.shape == (3, 3)
 
     def test_bottom_row_preserved(self):
         """The bottom row of the result is always [0, 0, 1] (affine constraint)."""
         M0 = self._make_matrix(tx=1.0, ty=2.0, angle_rad=0.5)
         M1 = self._make_matrix(tx=-3.0, ty=0.5, angle_rad=1.2, sx=2.0)
-        result = _interpolate_trks2d(M0, M1, 0.3)
+        result = interpolate_trks2d(M0, M1, 0.3)
         np.testing.assert_array_almost_equal(result[2, :], [0.0, 0.0, 1.0])
 
     def test_angle_shortest_path(self):
@@ -346,8 +346,8 @@ class TestInterpolateTrks2d:
         M0 = self._make_matrix(angle_rad=angle0)
         M1 = self._make_matrix(angle_rad=angle1)
         # At t=0.5, smoothstep=0.5 → midpoint angle should be 0° (= 360°)
-        result = _interpolate_trks2d(M0, M1, 0.5)
-        tx, ty, angle_mid, kx, sx, sy = _decompose_trks2d(result)
+        result = interpolate_trks2d(M0, M1, 0.5)
+        tx, ty, angle_mid, kx, sx, sy = decompose_trks2d(result)
         # Normalise to [−π, π]
         angle_mid_norm = (angle_mid + np.pi) % (2 * np.pi) - np.pi
         assert angle_mid_norm == pytest.approx(0.0, abs=1e-6)
@@ -357,7 +357,7 @@ class TestInterpolateTrks2d:
         M0 = self._make_matrix(tx=0.0)
         M1 = self._make_matrix(tx=10.0)
         # Linear interpolation at t=0.25 gives tx=2.5; smoothstep gives t_s=0.15625 → tx=1.5625
-        result_25 = _interpolate_trks2d(M0, M1, 0.25)
-        tx_25 = _decompose_trks2d(result_25)[0]
+        result_25 = interpolate_trks2d(M0, M1, 0.25)
+        tx_25 = decompose_trks2d(result_25)[0]
         assert tx_25 < 2.5  # smoothstep lags behind linear near t=0
 

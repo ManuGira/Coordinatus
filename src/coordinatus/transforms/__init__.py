@@ -42,7 +42,7 @@ def trks2D(tx: float=0, ty: float=0, angle_rad: float=0, kx: float=0, ky: float=
     return T @ R @ K @ S
 
 
-def _decompose_trks2d(
+def decompose_trks2d(
     M: np.ndarray,
 ) -> tuple[float, float, float, float, float, float]:
     """Decompose a 3x3 2D affine matrix into (tx, ty, angle_rad, kx, sx, sy).
@@ -67,14 +67,14 @@ def _decompose_trks2d(
     return tx, ty, angle, kx, sx, sy
 
 
-def _interpolate_trks2d(M0: np.ndarray, M1: np.ndarray, t: float) -> np.ndarray:
+def interpolate_trks2d(M0: np.ndarray, M1: np.ndarray, t: float) -> np.ndarray:
     """Interpolate between two 3x3 2D affine matrices with smoothstep easing at *t* in [0, 1].
 
     Handles TRS and TRKS(kx, ky=0) matrices; uses QR decomposition so any
     matrix built with :func:`trs2D` or :func:`trks2D` round-trips correctly.
     """
-    tx0, ty0, a0, kx0, sx0, sy0 = _decompose_trks2d(M0)
-    tx1, ty1, a1, kx1, sx1, sy1 = _decompose_trks2d(M1)
+    tx0, ty0, a0, kx0, sx0, sy0 = decompose_trks2d(M0)
+    tx1, ty1, a1, kx1, sx1, sy1 = decompose_trks2d(M1)
     da = (a1 - a0 + np.pi) % (2 * np.pi) - np.pi  # shortest-path angle delta
     t_s = t * t * (3.0 - 2.0 * t)  # smoothstep easing
     return trks2D(
