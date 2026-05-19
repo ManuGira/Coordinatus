@@ -435,14 +435,18 @@ class _HierarchyInteractor:
         )
         self.hovered_node: int | None = None
 
+        # View space: rendering reference; never one of the user's spaces.
+        # Parent = currently selected space; transform = view offset (identity = look straight).
+        self._view_space: Space = Space(
+            transform=np.eye(3), parent=data.reference_space or Space2D()
+        )
+
         # Per-space artist tracking for fast hover updates.
         self._space_artists: dict[int, list] = {}
         self._prev_hovered: int | None = None
 
         # Pan state
         self._pan_start_display: tuple[float, float] | None = None
-        self._pan_xlim: tuple[float, float] | None = None
-        self._pan_ylim: tuple[float, float] | None = None
         self._pan_inv_transform = None  # captured at press time to avoid drift
 
         fig.canvas.mpl_connect("button_press_event", self._on_press)
