@@ -3,6 +3,7 @@
 import numpy as np
 from coordinatus.transforms import (
     translate,
+    translate1D,
     translate2D,
     translate3D
 )
@@ -210,4 +211,14 @@ class TestTranslate3D:
         T2 = translate([tx, ty, tz])
         np.testing.assert_array_almost_equal(T1, T2)
 
+
+class TestTranslate1D:
+    """Tests for the translate1D function."""
+
+    def test_translate1D_returns_correct_matrix(self):
+        """Test that translate1D returns a 2x2 homogeneous translation matrix."""
+        T = translate1D(5)
+        expected = np.array([[1, 5],
+                             [0, 1]])
+        np.testing.assert_array_almost_equal(T, expected)
 
