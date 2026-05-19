@@ -6,6 +6,12 @@
 
 ---
 
+## Git
+
+Prefer running `git` commands directly in the terminal over using the GitKraken MCP server tools.
+
+---
+
 ## Running Python Scripts with UV
 
 This project uses **`uv`** to manage Python scripts instead of the traditional `python` command.
