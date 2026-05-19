@@ -99,7 +99,7 @@ is always "approach identity" regardless of which two spaces are involved.
 
 ## Steps
 
-### Step 1 — Remove animation code
+### Step 1 — Remove animation code ✅ Done (May 19, 2026)
 
 Delete the following from `visualization.py`:
 
