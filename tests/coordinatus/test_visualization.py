@@ -2,6 +2,7 @@
 
 from unittest.mock import Mock
 import numpy as np
+import matplotlib.transforms as mtransforms
 
 from coordinatus import Space2D, Point, create_space
 from coordinatus.visualization import draw_space_axes, draw_points
@@ -10,63 +11,65 @@ from coordinatus.visualization import draw_space_axes, draw_points
 class TestDrawSpaceAxes:
     """Tests for the draw_space_axes function."""
 
+    def _make_ax(self):
+        """Mock axes with a real transData so Affine2D + ax.transData works."""
+        ax = Mock()
+        ax.transData = mtransforms.IdentityTransform()
+        return ax
+
     def test_draws_origin(self):
         """Test that origin point is drawn."""
-        ax = Mock()
+        ax = self._make_ax()
         space = Space2D()
-        
+
         draw_space_axes(ax, space, color='blue', label='Test')
-        
-        ax.plot.assert_called()
-        # First plot call is the origin
-        first_call = ax.plot.call_args_list[0]
-        assert first_call[1]['color'] == 'blue'
-        assert 'origin' in first_call[1]['label']
+
+        # Origin is a filled diamond drawn via ax.fill
+        ax.fill.assert_called()
+        first_fill = ax.fill.call_args_list[0]
+        assert first_fill[1]['color'] == 'blue'
 
     def test_draws_arrows_for_axes(self):
         """Test that x and y axis arrows are drawn."""
-        ax = Mock()
+        ax = self._make_ax()
         space = Space2D()
-        
+
         draw_space_axes(ax, space)
-        
-        assert ax.arrow.call_count == 2  # x-axis and y-axis
+
+        # Two arrow bodies drawn via ax.plot (one for x, one for y)
+        assert ax.plot.call_count == 2
 
     def test_draws_axis_labels(self):
         """Test that axis labels are drawn."""
-        ax = Mock()
+        ax = self._make_ax()
         space = Space2D()
-        
+
         draw_space_axes(ax, space, label='MySpace')
-        
-        assert ax.text.call_count == 2
-        text_calls = [c[0][2] for c in ax.text.call_args_list]
-        assert 'MySpace X' in text_calls
-        assert 'MySpace Y' in text_calls
+
+        # Three PathPatch labels: space label + X axis + Y axis
+        assert ax.add_patch.call_count == 3
 
     def test_none_space_uses_absolute(self):
         """Test that None space draws the absolute/world space."""
-        ax = Mock()
-        
+        ax = self._make_ax()
+
+        # Should not raise
         draw_space_axes(ax, None)
-        
-        # Origin should be at (0, 0)
-        first_call = ax.plot.call_args_list[0]
-        assert first_call[0][0] == 0  # x
-        assert first_call[0][1] == 0  # y
+
+        ax.fill.assert_called()
 
     def test_respects_color_parameter(self):
         """Test that color is applied to all elements."""
-        ax = Mock()
-        
+        ax = self._make_ax()
+
         draw_space_axes(ax, Space2D(), color='red')
-        
-        # Check origin color
-        assert ax.plot.call_args_list[0][1]['color'] == 'red'
-        # Check arrow colors
-        for arrow_call in ax.arrow.call_args_list:
-            assert arrow_call[1]['fc'] == 'red'
-            assert arrow_call[1]['ec'] == 'red'
+
+        # Origin fill and arrow-head fills all use the specified color
+        for fill_call in ax.fill.call_args_list:
+            assert fill_call[1]['color'] == 'red'
+        # Arrow-body plots use the specified color
+        for plot_call in ax.plot.call_args_list:
+            assert plot_call[1]['color'] == 'red'
 
 
 class TestDrawPoints:

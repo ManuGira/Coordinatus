@@ -14,7 +14,6 @@ import numpy as np
 from matplotlib.textpath import TextPath
 from matplotlib.patches import PathPatch
 
-from coordinatus.transforms import scale
 
 if TYPE_CHECKING:
     from matplotlib.axes import Axes
@@ -34,7 +33,7 @@ except ImportError:  # pragma: no cover
     nx = None  # type: ignore
 
 from .space import Space, Space2D 
-from .transforms import rotate2D, scale2D, translate2D
+from .transforms import rotate2D, scale2D
 from .coordinate import Point, Vector
 
 
@@ -76,13 +75,14 @@ def draw_space_axes(
         >>> plt.show()
     """
     _check_matplotlib()
-    
-    if reference_space is None:
-        reference_space = Space2D() 
 
-    # Use absolute space if space is None
-    if space is None:
+    if space is None and reference_space is None:
+        reference_space = Space2D()
         space = Space2D(parent=reference_space)
+    elif space is None:
+        space = Space2D(parent=reference_space)
+    elif reference_space is None:
+        reference_space = space.get_root()
     
     # Get space origin and unit vectors in reference space
     origin = Point(np.array([0, 0]), space=space)
@@ -153,8 +153,8 @@ def draw_space_axes(
         Vector(np.array([0.08, 0]), space=space).relative_to(reference_space).coords, 
         label, color, alpha)
     
-    draw_arrow_10(ax, reference_space, space, color=color, alpha=alpha, label=f"X axis")
-    draw_arrow_10(ax, reference_space, y_axis_space, color=color, alpha=alpha, label=f"Y axis")
+    draw_arrow_10(ax, reference_space, space, color=color, alpha=alpha, label="X axis")
+    draw_arrow_10(ax, reference_space, y_axis_space, color=color, alpha=alpha, label="Y axis")
 
 
     
