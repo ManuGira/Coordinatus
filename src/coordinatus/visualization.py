@@ -34,7 +34,7 @@ except ImportError:  # pragma: no cover
     nx = None  # type: ignore
 
 from .space import Space, Space2D 
-from .transforms import rotate2D, scale2D, translate2D
+from .transforms import rotate2D, scale2D, translate2D, trs2D, trks2D
 from .coordinate import Point, Vector
 
 
@@ -220,6 +220,58 @@ def draw_points(
                     fontsize=10, color=color, fontweight='bold')
 
 
+# ── transition animation helpers ─────────────────────────────────────────────
+
+_ANIM_FRAMES: int = 20
+_ANIM_INTERVAL_MS: int = 16  # ~60 fps
+
+
+def _decompose_trks2d(
+    M: np.ndarray,
+) -> tuple[float, float, float, float, float, float]:
+    """Decompose a 3x3 2D affine matrix into (tx, ty, angle_rad, kx, sx, sy).
+
+    Uses a QR-based convention (upper-triangular shear) so the result is unique
+    for any invertible matrix, including those built with :func:`trks2D`.
+    The ``ky`` component is always 0 by convention.
+
+    Given M = T @ R @ [[1, kx], [0, 1]] @ [[sx, 0], [0, sy]]:
+
+    - sx = \u2016col0\u2016  →  sqrt(M00^2 + M10^2)
+    - theta = atan2(M10, M00)
+    - sy = det(M[:2,:2]) / sx  (sign-preserving)
+    - kx = dot(col0, col1) / (sx * sy)
+    """
+    tx, ty = float(M[0, 2]), float(M[1, 2])
+    a, b, c, d = float(M[0, 0]), float(M[0, 1]), float(M[1, 0]), float(M[1, 1])
+    sx = float(np.sqrt(a ** 2 + c ** 2))
+    angle = float(np.arctan2(c, a))
+    sy = float((a * d - b * c) / sx)  # det / sx, preserves sign
+    kx = float((a * b + c * d) / (sx * sy))
+    return tx, ty, angle, kx, sx, sy
+
+
+def _interpolate_trks2d(M0: np.ndarray, M1: np.ndarray, t: float) -> np.ndarray:
+    """Interpolate between two 3x3 2D affine matrices with smoothstep easing at *t* \u2208 [0, 1].
+
+    Handles TRS and TRKS(kx, ky=0) matrices; uses QR decomposition so any
+    matrix built with :func:`trs2D` or :func:`trks2D` round-trips correctly.
+    """
+    tx0, ty0, a0, kx0, sx0, sy0 = _decompose_trks2d(M0)
+    tx1, ty1, a1, kx1, sx1, sy1 = _decompose_trks2d(M1)
+    da = (a1 - a0 + np.pi) % (2 * np.pi) - np.pi  # shortest-path angle delta
+    t_s = t * t * (3.0 - 2.0 * t)  # smoothstep easing
+    return trks2D(
+        tx=tx0 + t_s * (tx1 - tx0),
+        ty=ty0 + t_s * (ty1 - ty0),
+        angle_rad=a0 + t_s * da,
+        kx=kx0 + t_s * (kx1 - kx0),
+        ky=0.0,
+        sx=sx0 + t_s * (sx1 - sx0),
+        sy=sy0 + t_s * (sy1 - sy0),
+    )
+
+
 # ── helpers for draw_space_hierarchy ────────────────────────────────────────
 
 @dataclass
@@ -361,21 +413,34 @@ def _draw_axes_subplot(
     hovered_node: int | None = None,
     xlim: tuple | None = None,
     ylim: tuple | None = None,
+    reference_space_override: "Space | None" = None,
 ) -> "dict[int, list]":
     """Draw every space's coordinate frame on *ax* using :func:`draw_space_axes`.
+
+    *reference_space_override* is used during animated transitions to supply a
+    temporary interpolated space without mutating *data.reference_space*.
 
     Returns a mapping ``{id(space): [artists]}`` so callers can update
     individual spaces without a full clear+redraw cycle.
     """
+    effective_ref = (
+        reference_space_override if reference_space_override is not None
+        else data.reference_space
+    )
     space_artists: dict[int, list] = {}
     for space in data.spaces:
         color = data.colors[id(space)]
         label = data.labels[id(space)]
-        is_reference = data.reference_space is not None and space is data.reference_space
+        # No highlight during transitions (reference_space_override is set).
+        is_reference = (
+            reference_space_override is None
+            and data.reference_space is not None
+            and space is data.reference_space
+        )
         is_hovered = hovered_node is not None and id(space) == hovered_node
         n_lines = len(ax.lines)
         n_patches = len(ax.patches)
-        draw_space_axes(ax, space, reference_space=data.reference_space,
+        draw_space_axes(ax, space, reference_space=effective_ref,
                         color=color, label=label, highlight=is_reference or is_hovered)
         space_artists[id(space)] = list(ax.lines[n_lines:]) + list(ax.patches[n_patches:])
     ref_name = (
@@ -433,6 +498,15 @@ class _HierarchyInteractor:
         self._pan_xlim: tuple[float, float] | None = None
         self._pan_ylim: tuple[float, float] | None = None
         self._pan_inv_transform = None  # captured at press time to avoid drift
+
+        # Animation state
+        self._anim_timer = None
+        self._anim_frame: int = 0
+        self._anim_M_old: np.ndarray | None = None
+        self._anim_M_new: np.ndarray | None = None
+        self._anim_root: Space | None = None
+        self._anim_R_root_inv: np.ndarray | None = None
+        self._anim_bg = None  # captured pixel background for blitting
 
         fig.canvas.mpl_connect("button_press_event", self._on_press)
         fig.canvas.mpl_connect("motion_notify_event", self._on_motion)
@@ -560,16 +634,129 @@ class _HierarchyInteractor:
                 pass
         return best_id
 
-    # ── selection ─────────────────────────────────────────────────────────
+    # ── selection & transition ────────────────────────────────────────────
 
     def _select_node(self, node_id: int) -> None:
+        old_ref = self.data.reference_space
+        new_ref = self.id_to_space[node_id]
+        if new_ref is old_ref:
+            return
         self.selected_node = node_id
-        self.data.reference_space = self.id_to_space[node_id]
-        self._redraw()
+        self.data.reference_space = new_ref
+        # Animate only when both spaces are in the same tree.
+        if old_ref is not None and old_ref.get_root() is new_ref.get_root():
+            self._start_anim(
+                old_ref.compute_absolute_transform(),
+                new_ref.compute_absolute_transform(),
+                new_ref.get_root(),
+            )
+        else:
+            self._redraw()
+
+    def _start_anim(
+        self, M_old_abs: np.ndarray, M_new_abs: np.ndarray, root: Space
+    ) -> None:
+        """Begin a smooth transition to the new reference space."""
+        if self._anim_timer is not None:
+            self._anim_timer.stop()
+            self._anim_timer = None
+
+        # Update graph panel immediately (cheap — just a few nodes).
+        self.ax_graph.clear()
+        _draw_hierarchy_subplot(
+            self.ax_graph, self.data,
+            selected_node=self.selected_node,
+            hovered_node=self.hovered_node,
+        )
+
+        # Precompute root inverse so temp_ref has the correct absolute transform.
+        R_root = root.compute_absolute_transform()
+        self._anim_R_root_inv = np.linalg.inv(R_root)
+        self._anim_frame = 0
+        self._anim_M_old = M_old_abs
+        self._anim_M_new = M_new_abs
+        self._anim_root = root
+
+        # ── Blit setup: capture static background (no space artists) ────────
+        # Hide all space artists temporarily so the background only contains
+        # the axes frame, grid lines, ticks and labels.
+        for artists in self._space_artists.values():
+            for a in artists:
+                a.set_visible(False)
+        # Full draw so both panels are rendered correctly before we start.
+        self.fig.canvas.draw()
+        self._anim_bg = self.fig.canvas.copy_from_bbox(self.ax_axes.bbox)
+        # Remove space artists — they will be recreated each frame.
+        for artists in self._space_artists.values():
+            for a in artists:
+                try:
+                    a.remove()
+                except ValueError:
+                    pass
+        self._space_artists = {}
+
+        self._anim_timer = self.fig.canvas.new_timer(interval=_ANIM_INTERVAL_MS)
+        self._anim_timer.add_callback(self._anim_step)
+        self._anim_timer.start()
+
+    def _anim_step(self) -> None:
+        """Timer callback: render one animation frame using blitting."""
+        self._anim_frame += 1
+        t = self._anim_frame / _ANIM_FRAMES
+        if t >= 1.0:
+            self._anim_timer.stop()
+            self._anim_timer = None
+            self._anim_bg = None
+            self._redraw()
+            return
+
+        M_t_abs = _interpolate_trks2d(self._anim_M_old, self._anim_M_new, t)
+        M_t_local = self._anim_R_root_inv @ M_t_abs
+        temp_ref = Space(transform=M_t_local, parent=self._anim_root)
+
+        # Remove previous frame's artists (no ax.clear()).
+        for artists in self._space_artists.values():
+            for a in artists:
+                try:
+                    a.remove()
+                except ValueError:
+                    pass
+
+        # Draw new frame's artists into the axes (no grids — highlight=False).
+        new_artists: dict[int, list] = {}
+        for space in self.data.spaces:
+            color = self.data.colors[id(space)]
+            label = self.data.labels[id(space)]
+            n_lines = len(self.ax_axes.lines)
+            n_patches = len(self.ax_axes.patches)
+            draw_space_axes(
+                self.ax_axes, space,
+                reference_space=temp_ref,
+                color=color, label=label,
+                highlight=False,
+            )
+            frame_artists = (
+                list(self.ax_axes.lines[n_lines:])
+                + list(self.ax_axes.patches[n_patches:])
+            )
+            for a in frame_artists:
+                a.set_animated(True)
+            new_artists[id(space)] = frame_artists
+        self._space_artists = new_artists
+
+        # Blit: restore static background, draw new artists on top, push to screen.
+        renderer = self.fig.canvas.get_renderer()
+        self.fig.canvas.restore_region(self._anim_bg)
+        for frame_artists in self._space_artists.values():
+            for a in frame_artists:
+                self.ax_axes.draw_artist(a)
+        self.fig.canvas.blit(self.ax_axes.bbox)
 
     # ── event handlers ────────────────────────────────────────────────────
 
     def _on_press(self, event) -> None:
+        if self._anim_timer is not None:
+            return  # ignore clicks during transition
         if event.button != 1:
             return
         if event.inaxes is self.ax_graph and event.xdata is not None:
@@ -593,6 +780,8 @@ class _HierarchyInteractor:
         self._pan_inv_transform = self.ax_axes.transData.inverted()
 
     def _on_motion(self, event) -> None:
+        if self._anim_timer is not None:
+            return  # ignore motion during transition
         # Pan takes priority over hover detection.
         if self._pan_start_display is not None:
             if event.x is not None:
@@ -624,6 +813,8 @@ class _HierarchyInteractor:
             self._pan_inv_transform = None
 
     def _on_axes_leave(self, event) -> None:
+        if self._anim_timer is not None:
+            return
         if self.hovered_node is not None:
             self.hovered_node = None
             self._redraw_hover()
