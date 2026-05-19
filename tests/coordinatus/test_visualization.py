@@ -579,6 +579,8 @@ class TestHierarchyInteractor:
             interactor._select_node(id(child))
             assert interactor.data.reference_space is child
             assert interactor.selected_node == id(child)
+            assert interactor._view_space.parent is child
+            assert np.allclose(interactor._view_space.transform, np.eye(3))
         finally:
             plt.close(fig)
 

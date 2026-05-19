@@ -574,12 +574,12 @@ class _HierarchyInteractor:
     # ── selection & transition ────────────────────────────────────────────
 
     def _select_node(self, node_id: int) -> None:
-        old_ref = self.data.reference_space
         new_ref = self.id_to_space[node_id]
-        if new_ref is old_ref:
+        if new_ref is self._view_space.parent:
             return
         self.selected_node = node_id
         self.data.reference_space = new_ref
+        self._view_space = Space(transform=np.eye(3), parent=new_ref)
         self._redraw()
 
     # ── event handlers ────────────────────────────────────────────────────
