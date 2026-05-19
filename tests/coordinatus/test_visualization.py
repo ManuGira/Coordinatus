@@ -76,6 +76,18 @@ class TestDrawSpaceAxes:
 
         ax.fill.assert_called()
 
+    def test_none_space_with_reference_space(self):
+        """Test space=None, reference_space=not None (lines 86-88).
+
+        Draws the world/identity axes as seen from an explicit reference space.
+        """
+        ax = self._make_ax()
+        ref = create_space(parent=None, tx=1.0, ty=2.0, angle_rad=0.0, sx=1.0, sy=1.0)
+
+        draw_space_axes(ax, None, reference_space=ref)
+
+        ax.fill.assert_called()
+
     def test_respects_color_parameter(self):
         """Test that color is applied to all elements."""
         ax = self._make_ax()
