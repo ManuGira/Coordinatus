@@ -88,6 +88,17 @@ def interpolate_trks2d(M0: np.ndarray, M1: np.ndarray, t: float) -> np.ndarray:
     )
 
 
+def complex_multiplication(real: float, imag: float) -> np.ndarray:
+    """Creates a 3x3 homogeneous transformation matrix reproducing the effect of a complex multiplication on 2D vectors:
+    It is equivalent to a combination of rotation and scaling, where the angle of rotation is determined by the argument of the complex number (atan2(imag, real)) and the scaling factor is determined by the magnitude of the complex number (sqrt(real^2 + imag^2)). The resulting matrix can be used to apply this transformation to 2D points in homogeneous coordinates.
+    """
+    return np.array([
+        [real, -imag, 0],
+        [imag, real, 0],
+        [0, 0, 1]
+    ])
+
+
 __all__ = [
     # Nothing to export explicitly, avoiding namespace conflictss
 ]
