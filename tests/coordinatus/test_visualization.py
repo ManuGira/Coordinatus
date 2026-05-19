@@ -836,6 +836,27 @@ class TestHierarchyInteractor:
         finally:
             plt.close(fig)
 
+    def test_update_graph_hover_changes_edge_colors(self):
+        interactor, fig, root, child = self._make_interactor(mock_renders=False)
+        try:
+            interactor._redraw()  # populate _graph_node_collection
+            assert interactor._graph_node_collection is not None
+            interactor.hovered_node = id(child)
+            interactor._update_graph_hover()
+            ec = interactor._graph_node_collection.get_edgecolors()
+            # At least one node should have a non-"none" edge color (the hovered one).
+            assert ec is not None and len(ec) > 0
+        finally:
+            plt.close(fig)
+
+    def test_update_graph_hover_no_collection_noop(self):
+        interactor, fig, root, child = self._make_interactor(mock_renders=False)
+        try:
+            interactor._graph_node_collection = None
+            interactor._update_graph_hover()  # should not raise
+        finally:
+            plt.close(fig)
+
     def test_redraw_hover_swap_artists(self):
         interactor, fig, root, child = self._make_interactor(mock_renders=False)
         try:

@@ -449,6 +449,11 @@ class _HierarchyInteractor:
         self._space_artists: dict[int, list] = {}
         self._prev_hovered: int | None = None
 
+        # Graph node collection — captured after each full draw so hover can
+        # update edge colours without calling nx.draw() again.
+        self._graph_node_collection = None   # matplotlib PathCollection
+        self._graph_node_order: list = []    # node ids in collection order
+
         # Pan state
         self._pan_start_display: tuple[float, float] | None = None
         self._pan_inv_transform = None  # captured at press time to avoid drift
@@ -472,6 +477,12 @@ class _HierarchyInteractor:
             selected_node=self.selected_node,
             hovered_node=self.hovered_node,
         )
+        self._graph_node_order = list(self.data.graph.nodes)
+        self._graph_node_collection = next(
+            (c for c in self.ax_graph.get_children()
+             if hasattr(c, 'set_edgecolors')),
+            None,
+        )
         self.ax_axes.clear()
         self._space_artists = _draw_axes_subplot(
             self.ax_axes, self.data, self._view_space, hovered_node=self.hovered_node
@@ -492,22 +503,43 @@ class _HierarchyInteractor:
         )
         self.fig.canvas.draw_idle()
 
+    def _update_graph_hover(self) -> None:
+        """Update graph node edge colours for hover/selection without a full nx.draw().
+
+        Directly mutates the edge colours and linewidths on the existing
+        PathCollection, avoiding the expensive clear + networkx redraw on every
+        mouse-move event.
+        """
+        coll = self._graph_node_collection
+        if coll is None:
+            return
+        edge_colors = []
+        line_widths = []
+        for n in self._graph_node_order:
+            if n == self.selected_node:
+                edge_colors.append("black")
+                line_widths.append(3.0)
+            elif n == self.hovered_node:
+                edge_colors.append("grey")
+                line_widths.append(2.0)
+            else:
+                edge_colors.append("none")
+                line_widths.append(1.0)
+        coll.set_edgecolors(edge_colors)
+        coll.set_linewidths(line_widths)
+
     def _redraw_hover(self) -> None:
         """Fast hover update: only redraws the spaces whose highlight state changed.
 
-        The graph subplot is cleared and redrawn (fast — few nodes).
+        The graph node edge colours are updated in-place on the existing
+        PathCollection (no clear + nx.draw call).
         The axes subplot is updated in-place: only the artists belonging to the
         previously-hovered and newly-hovered spaces are removed and redrawn,
         so the rest of the scene is untouched and no ``ax.clear()`` is needed.
         """
 
-        # Graph subplot: clear + redraw (fast — few nodes).
-        self.ax_graph.clear()
-        _draw_hierarchy_subplot(
-            self.ax_graph, self.data,
-            selected_node=self.selected_node,
-            hovered_node=self.hovered_node,
-        )
+        # Graph subplot: update node edge colours in-place (no nx.draw).
+        self._update_graph_hover()
 
         # Axes subplot: swap only the spaces whose highlight state changed.
         prev = self._prev_hovered
