@@ -1,11 +1,29 @@
 """Unit tests for visualization functions."""
 
-from unittest.mock import Mock
+import matplotlib
+matplotlib.use("Agg")  # must be before any pyplot import
+
+from unittest.mock import Mock, patch
 import numpy as np
+import matplotlib.pyplot as plt
 import matplotlib.transforms as mtransforms
 
-from coordinatus import Space2D, Point, create_space
-from coordinatus.visualization import draw_space_axes, draw_points
+from coordinatus import Space, Space2D, Point, create_space
+from coordinatus.visualization import (
+    draw_space_axes,
+    draw_points,
+    _build_digraph,
+    _tree_pos,
+    _compute_layout,
+    _make_color_map,
+    _find_reference_space,
+    _build_hierarchy_render_data,
+    _compute_figure_size,
+    _draw_hierarchy_subplot,
+    _draw_axes_subplot,
+    _HierarchyInteractor,
+    draw_space_hierarchy,
+)
 
 
 class TestDrawSpaceAxes:
@@ -70,6 +88,28 @@ class TestDrawSpaceAxes:
         # Arrow-body plots use the specified color
         for plot_call in ax.plot.call_args_list:
             assert plot_call[1]['color'] == 'red'
+
+    def test_highlight_draws_grid(self):
+        """Test that highlight=True causes a grid to be drawn."""
+        ax = self._make_ax()
+        root = Space2D()
+        child = create_space(root, tx=1.0, ty=0.0, angle_rad=0.0, sx=1.0, sy=1.0)
+
+        draw_space_axes(ax, child, reference_space=root, highlight=True)
+
+        # highlight draws grid lines (10 calls) plus 2 arrow bodies → > 2 total
+        assert ax.plot.call_count > 2
+
+    def test_explicit_reference_space(self):
+        """Test that providing an explicit reference_space works without error."""
+        ax = self._make_ax()
+        root = Space2D()
+        child = create_space(root, tx=0.5, ty=0.5, angle_rad=0.0, sx=1.0, sy=1.0)
+
+        draw_space_axes(ax, child, reference_space=root)
+
+        ax.fill.assert_called()
+        assert ax.plot.call_count == 2
 
 
 class TestDrawPoints:
@@ -139,6 +179,21 @@ class TestDrawPoints:
         
         ax.text.assert_not_called()
 
+    def test_with_explicit_reference_space(self):
+        """Test draw_points when reference_space is explicitly provided (not None)."""
+        ax = Mock()
+        root = Space2D()
+        child = create_space(root, tx=2.0, ty=3.0, angle_rad=0.0, sx=1.0, sy=1.0)
+        point = Point(np.array([0.0, 0.0]), space=child)
+
+        draw_points(ax, [point], reference_space=root, connect=False, show_labels=False)
+
+        ax.plot.assert_called()
+        plot_call = ax.plot.call_args
+        xs, ys = plot_call[0][0], plot_call[0][1]
+        np.testing.assert_array_almost_equal(xs, [2.0])
+        np.testing.assert_array_almost_equal(ys, [3.0])
+
     def test_respects_reference_space(self):
         """Test that points are transformed to reference space."""
         ax = Mock()
@@ -154,3 +209,748 @@ class TestDrawPoints:
         xs, ys = plot_call[0][0], plot_call[0][1]
         np.testing.assert_array_almost_equal(xs, [5])
         np.testing.assert_array_almost_equal(ys, [3])
+
+
+# ---------------------------------------------------------------------------
+# Hierarchy helper functions
+# ---------------------------------------------------------------------------
+
+class TestBuildDigraph:
+    """Tests for the _build_digraph helper."""
+
+    def test_single_root_node(self):
+        root = Space2D()
+        G = _build_digraph([root])
+        assert id(root) in G.nodes
+        assert G.number_of_edges() == 0
+
+    def test_parent_child_edge(self):
+        root = Space2D()
+        child = Space(transform=np.eye(3), parent=root)
+        G = _build_digraph([root, child])
+        assert G.has_edge(id(root), id(child))
+
+    def test_two_independent_roots(self):
+        r1, r2 = Space2D(), Space2D()
+        G = _build_digraph([r1, r2])
+        assert G.number_of_nodes() == 2
+        assert G.number_of_edges() == 0
+
+    def test_deep_chain(self):
+        root = Space2D()
+        mid = Space(transform=np.eye(3), parent=root)
+        leaf = Space(transform=np.eye(3), parent=mid)
+        G = _build_digraph([root, mid, leaf])
+        assert G.has_edge(id(root), id(mid))
+        assert G.has_edge(id(mid), id(leaf))
+
+
+class TestTreePos:
+    """Tests for the _tree_pos helper."""
+
+    def test_single_node(self):
+        root = Space2D()
+        G = _build_digraph([root])
+        pos = _tree_pos(G, id(root))
+        assert id(root) in pos
+
+    def test_parent_above_child(self):
+        root = Space2D()
+        child = Space(transform=np.eye(3), parent=root)
+        G = _build_digraph([root, child])
+        pos = _tree_pos(G, id(root))
+        # root should have a higher y-value than child
+        assert pos[id(root)][1] > pos[id(child)][1]
+
+    def test_siblings_at_same_depth(self):
+        root = Space2D()
+        c1 = Space(transform=np.eye(3), parent=root)
+        c2 = Space(transform=np.eye(3), parent=root)
+        G = _build_digraph([root, c1, c2])
+        pos = _tree_pos(G, id(root))
+        # Both children are at the same depth
+        assert pos[id(c1)][1] == pos[id(c2)][1]
+
+
+class TestComputeLayout:
+    """Tests for the _compute_layout helper."""
+
+    def test_returns_pos_for_all_nodes(self):
+        root = Space2D()
+        child = Space(transform=np.eye(3), parent=root)
+        G = _build_digraph([root, child])
+        pos = _compute_layout(G)
+        assert set(pos.keys()) == {id(root), id(child)}
+
+    def test_empty_graph(self):
+        import networkx as nx
+        G = nx.DiGraph()
+        pos = _compute_layout(G)
+        assert pos == {}
+
+
+class TestMakeColorMap:
+    """Tests for the _make_color_map helper."""
+
+    def test_length_matches_spaces(self):
+        spaces = [Space2D(), Space2D(), Space2D()]
+        cmap = _make_color_map(spaces)
+        assert len(cmap) == 3
+
+    def test_keys_are_ids(self):
+        s1, s2 = Space2D(), Space2D()
+        cmap = _make_color_map([s1, s2])
+        assert id(s1) in cmap
+        assert id(s2) in cmap
+
+    def test_values_are_hex_strings(self):
+        s = Space2D()
+        cmap = _make_color_map([s])
+        color = cmap[id(s)]
+        assert isinstance(color, str)
+        assert color.startswith("#")
+
+    def test_more_than_ten_spaces(self):
+        spaces = [Space2D() for _ in range(12)]
+        cmap = _make_color_map(spaces)
+        assert len(cmap) == 12
+
+
+class TestFindReferenceSpace:
+    """Tests for the _find_reference_space helper."""
+
+    def test_single_root_returned(self):
+        root = Space2D()
+        G = _build_digraph([root])
+        ref = _find_reference_space([root], G)
+        assert ref is root
+
+    def test_root_with_children(self):
+        root = Space2D()
+        child = Space(transform=np.eye(3), parent=root)
+        spaces = [root, child]
+        G = _build_digraph(spaces)
+        ref = _find_reference_space(spaces, G)
+        assert ref is root
+
+    def test_multiple_roots_returns_none(self):
+        r1, r2 = Space2D(), Space2D()
+        spaces = [r1, r2]
+        G = _build_digraph(spaces)
+        ref = _find_reference_space(spaces, G)
+        assert ref is None
+
+
+class TestComputeFigureSize:
+    """Tests for the _compute_figure_size helper."""
+
+    def test_empty_pos_returns_defaults(self):
+        w, h = _compute_figure_size({})
+        assert w == 4.0
+        assert h == 3.0
+
+    def test_single_node_returns_valid_size(self):
+        w, h = _compute_figure_size({1: (0.0, 0.0)})
+        assert w >= 4.0
+        assert h >= 3.0
+
+    def test_wide_layout_increases_width(self):
+        # 10 nodes spread wide
+        pos = {i: (float(i * 3), 0.0) for i in range(10)}
+        w, h = _compute_figure_size(pos)
+        assert w > 4.0
+
+    def test_deep_layout_increases_height(self):
+        # 5 nodes stacked deep
+        pos = {i: (0.0, float(-i)) for i in range(5)}
+        w, h = _compute_figure_size(pos)
+        assert h > 3.0
+
+
+class TestBuildHierarchyRenderData:
+    """Tests for the _build_hierarchy_render_data helper."""
+
+    def test_single_root(self):
+        root = Space2D()
+        labels = {id(root): "Root"}
+        data = _build_hierarchy_render_data([root], labels)
+        assert data.reference_space is root
+        assert len(data.spaces) == 1
+        assert id(root) in data.colors
+
+    def test_parent_child(self):
+        root = Space2D()
+        child = Space(transform=np.eye(3), parent=root)
+        labels = {id(root): "Root", id(child): "Child"}
+        data = _build_hierarchy_render_data([root, child], labels)
+        assert data.reference_space is root
+        assert data.node_labels[id(root)] == "Root"
+        assert data.node_labels[id(child)] == "Child"
+
+    def test_multiple_roots_no_reference(self):
+        r1, r2 = Space2D(), Space2D()
+        labels = {id(r1): "A", id(r2): "B"}
+        data = _build_hierarchy_render_data([r1, r2], labels)
+        assert data.reference_space is None
+
+
+# ---------------------------------------------------------------------------
+# Subplot drawing functions
+# ---------------------------------------------------------------------------
+
+def _make_data(with_child: bool = True):
+    """Shared fixture: build render data for a root (+ optional child) space."""
+    root = Space2D()
+    spaces = [root]
+    if with_child:
+        child = create_space(root, tx=1.0, ty=0.0, angle_rad=0.0, sx=1.0, sy=1.0)
+        spaces.append(child)
+    labels = {id(s): f"S{i}" for i, s in enumerate(spaces)}
+    data = _build_hierarchy_render_data(spaces, labels)
+    return data, spaces
+
+
+class TestDrawHierarchySubplot:
+    """Tests for _draw_hierarchy_subplot using real Agg axes."""
+
+    def test_draws_without_error(self):
+        data, _ = _make_data()
+        fig, ax = plt.subplots()
+        try:
+            _draw_hierarchy_subplot(ax, data)
+        finally:
+            plt.close(fig)
+
+    def test_selected_and_hovered_nodes(self):
+        data, spaces = _make_data()
+        root, child = spaces
+        fig, ax = plt.subplots()
+        try:
+            _draw_hierarchy_subplot(
+                ax, data,
+                selected_node=id(root),
+                hovered_node=id(child),
+            )
+        finally:
+            plt.close(fig)
+
+    def test_title_set(self):
+        data, _ = _make_data()
+        fig, ax = plt.subplots()
+        try:
+            _draw_hierarchy_subplot(ax, data)
+            assert "Hierarchy" in ax.get_title()
+        finally:
+            plt.close(fig)
+
+
+class TestDrawAxesSubplot:
+    """Tests for _draw_axes_subplot using real Agg axes."""
+
+    def test_returns_artist_map_for_each_space(self):
+        data, spaces = _make_data()
+        fig, ax = plt.subplots()
+        try:
+            artists = _draw_axes_subplot(ax, data)
+            assert len(artists) == len(spaces)
+        finally:
+            plt.close(fig)
+
+    def test_hovered_node_highlighted(self):
+        data, spaces = _make_data()
+        root, child = spaces
+        fig, ax = plt.subplots()
+        try:
+            artists = _draw_axes_subplot(ax, data, hovered_node=id(child))
+            assert len(artists) == 2
+        finally:
+            plt.close(fig)
+
+    def test_absolute_title_when_no_reference(self):
+        r1, r2 = Space2D(), Space2D()
+        labels = {id(r1): "A", id(r2): "B"}
+        data = _build_hierarchy_render_data([r1, r2], labels)
+        fig, ax = plt.subplots()
+        try:
+            _draw_axes_subplot(ax, data)
+            assert "absolute" in ax.get_title()
+        finally:
+            plt.close(fig)
+
+    def test_named_reference_in_title(self):
+        data, spaces = _make_data()
+        root = spaces[0]
+        fig, ax = plt.subplots()
+        try:
+            _draw_axes_subplot(ax, data)
+            assert data.labels[id(root)] in ax.get_title()
+        finally:
+            plt.close(fig)
+
+    def test_custom_xlim_ylim(self):
+        data, _ = _make_data()
+        fig, ax = plt.subplots()
+        try:
+            _draw_axes_subplot(ax, data, xlim=(-5.0, 5.0), ylim=(-4.0, 4.0))
+            np.testing.assert_allclose(ax.get_xlim(), (-5.0, 5.0))
+            np.testing.assert_allclose(ax.get_ylim(), (-4.0, 4.0))
+        finally:
+            plt.close(fig)
+
+
+# ---------------------------------------------------------------------------
+# _HierarchyInteractor
+# ---------------------------------------------------------------------------
+
+class TestHierarchyInteractor:
+    """Tests for the _HierarchyInteractor class using real Agg figures."""
+
+    def _make_interactor(self):
+        root = Space2D()
+        child = create_space(root, tx=1.0, ty=0.0, angle_rad=0.0, sx=1.0, sy=1.0)
+        spaces = [root, child]
+        labels = {id(s): f"S{i}" for i, s in enumerate(spaces)}
+        data = _build_hierarchy_render_data(spaces, labels)
+        id_to_space = {id(s): s for s in spaces}
+        fig, (ax_graph, ax_axes) = plt.subplots(1, 2)
+        interactor = _HierarchyInteractor(
+            fig, ax_graph, ax_axes, data, "Test", id_to_space
+        )
+        return interactor, fig, root, child
+
+    # ── initial state ───────────────────────────────────────────────────────
+
+    def test_initial_selected_node_is_root(self):
+        interactor, fig, root, child = self._make_interactor()
+        try:
+            assert interactor.selected_node == id(root)
+        finally:
+            plt.close(fig)
+
+    def test_initial_hover_none(self):
+        interactor, fig, root, child = self._make_interactor()
+        try:
+            assert interactor.hovered_node is None
+        finally:
+            plt.close(fig)
+
+    # ── selection ───────────────────────────────────────────────────────────
+
+    def test_select_node_changes_reference(self):
+        interactor, fig, root, child = self._make_interactor()
+        try:
+            interactor._select_node(id(child))
+            assert interactor.data.reference_space is child
+            assert interactor.selected_node == id(child)
+        finally:
+            plt.close(fig)
+
+    def test_select_same_node_is_noop(self):
+        interactor, fig, root, child = self._make_interactor()
+        try:
+            original_ref = interactor.data.reference_space
+            interactor._select_node(id(root))  # root is already selected
+            assert interactor.data.reference_space is original_ref
+        finally:
+            plt.close(fig)
+
+    # ── _node_at_graph_pos ──────────────────────────────────────────────────
+
+    def test_node_at_graph_pos_empty_pos(self):
+        interactor, fig, root, child = self._make_interactor()
+        try:
+            interactor.data.pos = {}
+            assert interactor._node_at_graph_pos(0.0, 0.0) is None
+        finally:
+            plt.close(fig)
+
+    def test_node_at_graph_pos_finds_nearby_node(self):
+        interactor, fig, root, child = self._make_interactor()
+        try:
+            rx, ry = interactor.data.pos[id(root)]
+            found = interactor._node_at_graph_pos(rx, ry)
+            assert found == id(root)
+        finally:
+            plt.close(fig)
+
+    def test_node_at_graph_pos_returns_none_when_far(self):
+        interactor, fig, root, child = self._make_interactor()
+        try:
+            assert interactor._node_at_graph_pos(1000.0, 1000.0) is None
+        finally:
+            plt.close(fig)
+
+    # ── _node_at_axes_pos ───────────────────────────────────────────────────
+
+    def test_node_at_axes_pos_finds_root_origin(self):
+        interactor, fig, root, child = self._make_interactor()
+        try:
+            # Root origin is at (0, 0) in its own (reference) coords
+            found = interactor._node_at_axes_pos(0.0, 0.0)
+            assert found == id(root)
+        finally:
+            plt.close(fig)
+
+    def test_node_at_axes_pos_returns_none_when_far(self):
+        interactor, fig, root, child = self._make_interactor()
+        try:
+            assert interactor._node_at_axes_pos(999.0, 999.0) is None
+        finally:
+            plt.close(fig)
+
+    # ── pan ─────────────────────────────────────────────────────────────────
+
+    def test_start_pan_sets_state(self):
+        interactor, fig, root, child = self._make_interactor()
+        try:
+            event = Mock()
+            event.x = 200.0
+            event.y = 150.0
+            interactor._start_pan(event)
+            assert interactor._pan_start_display == (200.0, 150.0)
+            assert interactor._pan_xlim is not None
+            assert interactor._pan_ylim is not None
+            assert interactor._pan_inv_transform is not None
+        finally:
+            plt.close(fig)
+
+    def test_start_pan_ignores_none_x(self):
+        interactor, fig, root, child = self._make_interactor()
+        try:
+            event = Mock()
+            event.x = None
+            interactor._start_pan(event)
+            assert interactor._pan_start_display is None
+        finally:
+            plt.close(fig)
+
+    def test_on_motion_pan_moves_limits(self):
+        interactor, fig, root, child = self._make_interactor()
+        try:
+            xlim_before = interactor.ax_axes.get_xlim()
+            press = Mock()
+            press.x = 200.0
+            press.y = 150.0
+            interactor._start_pan(press)
+            motion = Mock()
+            motion.x = 250.0  # moved 50 px right → data shifts left
+            motion.y = 150.0
+            interactor._on_motion(motion)
+            xlim_after = interactor.ax_axes.get_xlim()
+            assert xlim_before != xlim_after
+        finally:
+            plt.close(fig)
+
+    def test_on_release_clears_pan_state(self):
+        interactor, fig, root, child = self._make_interactor()
+        try:
+            event = Mock()
+            event.x = 200.0
+            event.y = 150.0
+            interactor._start_pan(event)
+            release = Mock()
+            release.button = 1
+            interactor._on_release(release)
+            assert interactor._pan_start_display is None
+            assert interactor._pan_xlim is None
+            assert interactor._pan_ylim is None
+            assert interactor._pan_inv_transform is None
+        finally:
+            plt.close(fig)
+
+    def test_on_release_non_left_button_noop(self):
+        interactor, fig, root, child = self._make_interactor()
+        try:
+            event = Mock()
+            event.x = 200.0
+            event.y = 150.0
+            interactor._start_pan(event)
+            release = Mock()
+            release.button = 3  # right-click
+            interactor._on_release(release)
+            assert interactor._pan_start_display is not None  # unchanged
+        finally:
+            plt.close(fig)
+
+    # ── scroll / zoom ────────────────────────────────────────────────────────
+
+    def test_scroll_zoom_in(self):
+        interactor, fig, root, child = self._make_interactor()
+        try:
+            xlim_before = interactor.ax_axes.get_xlim()
+            event = Mock()
+            event.inaxes = interactor.ax_axes
+            event.xdata = 0.0
+            event.ydata = 0.0
+            event.step = 1  # scroll up = zoom in
+            interactor._on_scroll(event)
+            xlim_after = interactor.ax_axes.get_xlim()
+            span_before = xlim_before[1] - xlim_before[0]
+            span_after = xlim_after[1] - xlim_after[0]
+            assert span_after < span_before
+        finally:
+            plt.close(fig)
+
+    def test_scroll_zoom_out(self):
+        interactor, fig, root, child = self._make_interactor()
+        try:
+            xlim_before = interactor.ax_axes.get_xlim()
+            event = Mock()
+            event.inaxes = interactor.ax_axes
+            event.xdata = 0.0
+            event.ydata = 0.0
+            event.step = -1  # scroll down = zoom out
+            interactor._on_scroll(event)
+            xlim_after = interactor.ax_axes.get_xlim()
+            span_before = xlim_before[1] - xlim_before[0]
+            span_after = xlim_after[1] - xlim_after[0]
+            assert span_after > span_before
+        finally:
+            plt.close(fig)
+
+    def test_scroll_ignored_on_wrong_axes(self):
+        interactor, fig, root, child = self._make_interactor()
+        try:
+            event = Mock()
+            event.inaxes = interactor.ax_graph  # not the axes panel
+            interactor._on_scroll(event)  # should not raise
+        finally:
+            plt.close(fig)
+
+    def test_scroll_ignored_when_no_xdata(self):
+        interactor, fig, root, child = self._make_interactor()
+        try:
+            event = Mock()
+            event.inaxes = interactor.ax_axes
+            event.xdata = None
+            interactor._on_scroll(event)  # should not raise
+        finally:
+            plt.close(fig)
+
+    # ── hover ────────────────────────────────────────────────────────────────
+
+    def test_on_axes_leave_clears_hover(self):
+        interactor, fig, root, child = self._make_interactor()
+        try:
+            interactor.hovered_node = id(root)
+            event = Mock()
+            interactor._on_axes_leave(event)
+            assert interactor.hovered_node is None
+        finally:
+            plt.close(fig)
+
+    def test_on_axes_leave_noop_when_no_hover(self):
+        interactor, fig, root, child = self._make_interactor()
+        try:
+            interactor.hovered_node = None
+            event = Mock()
+            interactor._on_axes_leave(event)  # should not raise
+        finally:
+            plt.close(fig)
+
+    def test_on_motion_hover_graph(self):
+        interactor, fig, root, child = self._make_interactor()
+        try:
+            rx, ry = interactor.data.pos[id(child)]
+            event = Mock()
+            event.inaxes = interactor.ax_graph
+            event.xdata = rx
+            event.ydata = ry
+            interactor._on_motion(event)
+            assert interactor.hovered_node == id(child)
+        finally:
+            plt.close(fig)
+
+    def test_on_motion_hover_axes(self):
+        interactor, fig, root, child = self._make_interactor()
+        try:
+            event = Mock()
+            event.inaxes = interactor.ax_axes
+            # Child origin is at (1, 0) in root coords
+            event.xdata = 1.0
+            event.ydata = 0.0
+            interactor._on_motion(event)
+            assert interactor.hovered_node == id(child)
+        finally:
+            plt.close(fig)
+
+    def test_on_motion_hover_unchanged_no_redraw(self):
+        interactor, fig, root, child = self._make_interactor()
+        try:
+            # Pre-set hover to root
+            interactor.hovered_node = id(root)
+            event = Mock()
+            event.inaxes = interactor.ax_graph
+            rx, ry = interactor.data.pos[id(root)]
+            event.xdata = rx
+            event.ydata = ry
+            # hover is the same → no _redraw_hover call
+            interactor._on_motion(event)
+            assert interactor.hovered_node == id(root)
+        finally:
+            plt.close(fig)
+
+    def test_redraw_hover_swap_artists(self):
+        interactor, fig, root, child = self._make_interactor()
+        try:
+            interactor.hovered_node = id(child)
+            interactor._prev_hovered = None
+            interactor._redraw_hover()
+            assert interactor._prev_hovered == id(child)
+        finally:
+            plt.close(fig)
+
+    def test_redraw_hover_remove_old_add_new(self):
+        interactor, fig, root, child = self._make_interactor()
+        try:
+            # Simulate hover changing from root to child
+            interactor._prev_hovered = id(root)
+            interactor.hovered_node = id(child)
+            interactor._redraw_hover()
+        finally:
+            plt.close(fig)
+
+    # ── on_press ─────────────────────────────────────────────────────────────
+
+    def test_on_press_non_left_button_ignored(self):
+        interactor, fig, root, child = self._make_interactor()
+        try:
+            event = Mock()
+            event.button = 3
+            event.inaxes = interactor.ax_graph
+            event.xdata = 0.0
+            interactor._on_press(event)  # should not raise
+        finally:
+            plt.close(fig)
+
+    def test_on_press_graph_selects_node(self):
+        interactor, fig, root, child = self._make_interactor()
+        try:
+            cx, cy = interactor.data.pos[id(child)]
+            event = Mock()
+            event.button = 1
+            event.inaxes = interactor.ax_graph
+            event.xdata = cx
+            event.ydata = cy
+            interactor._on_press(event)
+            assert interactor.data.reference_space is child
+        finally:
+            plt.close(fig)
+
+    def test_on_press_graph_miss_noop(self):
+        interactor, fig, root, child = self._make_interactor()
+        try:
+            event = Mock()
+            event.button = 1
+            event.inaxes = interactor.ax_graph
+            event.xdata = 1000.0
+            event.ydata = 1000.0
+            interactor._on_press(event)  # no node found → noop
+            assert interactor.data.reference_space is root
+        finally:
+            plt.close(fig)
+
+    def test_on_press_axes_click_origin_selects_node(self):
+        interactor, fig, root, child = self._make_interactor()
+        try:
+            event = Mock()
+            event.button = 1
+            event.inaxes = interactor.ax_axes
+            # Click at (1, 0) in reference coords → child's origin
+            event.xdata = 1.0
+            event.ydata = 0.0
+            interactor._on_press(event)
+            assert interactor.data.reference_space is child
+        finally:
+            plt.close(fig)
+
+    def test_on_press_axes_empty_area_starts_pan(self):
+        interactor, fig, root, child = self._make_interactor()
+        try:
+            event = Mock()
+            event.button = 1
+            event.inaxes = interactor.ax_axes
+            event.xdata = 50.0  # far from any origin
+            event.ydata = 50.0
+            event.x = 100.0
+            event.y = 100.0
+            interactor._on_press(event)
+            assert interactor._pan_start_display is not None
+        finally:
+            plt.close(fig)
+
+    def test_node_at_axes_pos_no_reference_space(self):
+        """Covers the else branch (reference_space is None) in _node_at_axes_pos."""
+        interactor, fig, root, child = self._make_interactor()
+        try:
+            interactor.data.reference_space = None
+            # Root's absolute origin is at (0, 0)
+            found = interactor._node_at_axes_pos(0.0, 0.0)
+            assert found == id(root)
+        finally:
+            plt.close(fig)
+
+    def test_node_at_axes_pos_exception_swallowed(self):
+        """Covers the except (ValueError, IndexError) block in _node_at_axes_pos."""
+        interactor, fig, root, child = self._make_interactor()
+        try:
+            # Add a space with a different root so relative_to() raises ValueError
+            orphan = Space2D()  # independent root — no common ancestor with root
+            interactor.data.spaces = [root, child, orphan]
+            # Should not raise; unrelated space is silently skipped
+            result = interactor._node_at_axes_pos(0.0, 0.0)
+            assert result == id(root)
+        finally:
+            plt.close(fig)
+
+    def test_redraw_hover_artist_remove_valueerror(self):
+        """Covers except ValueError in artist.remove() inside _redraw_hover."""
+        interactor, fig, root, child = self._make_interactor()
+        try:
+            bad_artist = Mock()
+            bad_artist.remove.side_effect = ValueError("already removed")
+            interactor._space_artists[id(child)] = [bad_artist]
+            interactor._prev_hovered = id(child)
+            interactor.hovered_node = None  # trigger removal of child's artists
+            interactor._redraw_hover()  # should not raise
+        finally:
+            plt.close(fig)
+
+    def test_redraw_hover_unknown_space_id(self):
+        """Covers the 'if space is None: continue' guard in _redraw_hover."""
+        interactor, fig, root, child = self._make_interactor()
+        try:
+            fake_id = 999999999  # not in id_to_space
+            interactor._space_artists[fake_id] = []
+            interactor._prev_hovered = fake_id
+            interactor.hovered_node = None
+            interactor._redraw_hover()  # should not raise
+        finally:
+            plt.close(fig)
+
+
+# ---------------------------------------------------------------------------
+# draw_space_hierarchy public API
+# ---------------------------------------------------------------------------
+
+class TestDrawSpaceHierarchy:
+    """Tests for the draw_space_hierarchy public function."""
+
+    def test_basic_call_does_not_raise(self):
+        root = Space2D()
+        child = create_space(root, tx=1.0, ty=0.0, angle_rad=0.0, sx=1.0, sy=1.0)
+        with patch("matplotlib.pyplot.show"):
+            draw_space_hierarchy([root, child], title="Test hierarchy")
+
+    def test_auto_labels_generated(self):
+        root = Space2D()
+        with patch("matplotlib.pyplot.show"):
+            # labels=None → auto-generated "Space 0", etc.
+            draw_space_hierarchy([root])
+
+    def test_custom_labels(self):
+        root = Space2D()
+        child = create_space(root, tx=0.5, ty=0.5, angle_rad=0.0, sx=1.0, sy=1.0)
+        labels = {id(root): "World", id(child): "Local"}
+        with patch("matplotlib.pyplot.show"):
+            draw_space_hierarchy([root, child], labels=labels, title="Custom")
