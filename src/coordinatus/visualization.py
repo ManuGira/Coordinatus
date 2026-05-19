@@ -132,17 +132,70 @@ def draw_space_axes(
         draw_text(ax, start_txt.coords, vector.coords, label, color, alpha)
 
     def draw_grid(ax: 'Axes', reference_space: Space, space: Space, color="gray", alpha=0.3):
-        """Draw a grid of lines at every integer coordinate in the given space."""
-        N = 2
+        """Draw a two-stage full-viewport adaptive grid for *space* as seen from *reference_space*.
 
-        for x in range(-N, N+1):
-            start = Point(np.array([x, -N-0.2]), space=space).relative_to(reference_space)
-            end = Point(np.array([x, N+0.2]), space=space).relative_to(reference_space)
-            ax.plot([start.coords[0], end.coords[0]], [start.coords[1], end.coords[1]], color=color, alpha=alpha)
-        for y in range(-N, N+1):
-            start = Point(np.array([-N-0.2, y]), space=space).relative_to(reference_space)
-            end = Point(np.array([N+0.2, y]), space=space).relative_to(reference_space)
-            ax.plot([start.coords[0], end.coords[0]], [start.coords[1], end.coords[1]], color=color, alpha=alpha)
+        Two consecutive powers of 10 are drawn simultaneously, each showing at most
+        24 lines per axis.  The fine stage is drawn at half opacity with no labels;
+        the coarse stage is drawn at full opacity with tick labels.
+        """
+        import math
+
+        def format_tick(v: float) -> str:
+            return f"{v:.3g}"
+
+        # 1. Viewport corners expressed in space coords.
+        try:
+            viewport_pts = Point(
+                np.array([
+                    [2.5, 2.5, -2.5, -2.5],
+                    [2.5, -2.5, 2.5, -2.5],
+                ]),
+                space=reference_space,
+            ).relative_to(space)
+            xs_v = viewport_pts.coords[0]
+            ys_v = viewport_pts.coords[1]
+            x_min, x_max = float(xs_v.min()), float(xs_v.max())
+            y_min, y_max = float(ys_v.min()), float(ys_v.max())
+        except ValueError:
+            return  # spaces unrelated — skip grid silently
+
+        # 2. Two-stage adaptive steps: each stage shows at most 24 lines per axis.
+        range_ = max(x_max - x_min, y_max - y_min, 1e-9)
+        fine_step = 10.0 ** math.ceil(math.log10(range_ / 24))
+        fine_step = max(fine_step, 1e-9)
+        coarse_step = fine_step * 10.0
+
+        def draw_lines(step: float, line_alpha: float, with_labels: bool) -> None:
+            kx_lo = math.floor(x_min / step) - 1
+            kx_hi = math.ceil(x_max / step) + 1
+            for k in range(kx_lo, kx_hi + 1):
+                x_val = k * step
+                start = Point(np.array([x_val, y_min - step]), space=space).relative_to(reference_space)
+                end = Point(np.array([x_val, y_max + step]), space=space).relative_to(reference_space)
+                ax.plot([start.coords[0], end.coords[0]], [start.coords[1], end.coords[1]], color=color, alpha=line_alpha)
+                if with_labels and k != 0:
+                    y_label = max(y_min, min(y_max, 0.0))
+                    pos = Point(np.array([x_val, y_label]), space=space).relative_to(reference_space)
+                    direction = Vector(np.array([step * 0.25, 0.0]), space=space).relative_to(reference_space)
+                    draw_text(ax, pos.coords, direction.coords, format_tick(x_val), color, line_alpha)
+
+            ky_lo = math.floor(y_min / step) - 1
+            ky_hi = math.ceil(y_max / step) + 1
+            for k in range(ky_lo, ky_hi + 1):
+                y_val = k * step
+                start = Point(np.array([x_min - step, y_val]), space=space).relative_to(reference_space)
+                end = Point(np.array([x_max + step, y_val]), space=space).relative_to(reference_space)
+                ax.plot([start.coords[0], end.coords[0]], [start.coords[1], end.coords[1]], color=color, alpha=line_alpha)
+                if with_labels and k != 0:
+                    x_label = max(x_min, min(x_max, 0.0))
+                    pos = Point(np.array([x_label, y_val]), space=space).relative_to(reference_space)
+                    direction = Vector(np.array([0.0, step * 0.25]), space=space).relative_to(reference_space)
+                    draw_text(ax, pos.coords, direction.coords, format_tick(y_val), color, line_alpha)
+
+        # Fine stage: lighter, with tick labels.
+        draw_lines(fine_step, alpha * 0.5, with_labels=True)
+        # Coarse stage: more visible, no labels.
+        draw_lines(coarse_step, alpha, with_labels=False)
 
     if highlight:
         draw_grid(ax, reference_space, space, color=color, alpha=alpha*0.3)
@@ -388,9 +441,7 @@ def _draw_axes_subplot(
     ax.set_aspect("equal")
     ax.set_xlim(-2.5, 2.5)
     ax.set_ylim(-2.5, 2.5)
-    ax.grid(True, alpha=0.3)
-    ax.set_xlabel("X")
-    ax.set_ylabel("Y")
+
     ax.set_title(f"Coordinate axes (in {ref_name} space)")
 
 

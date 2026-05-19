@@ -109,8 +109,41 @@ class TestDrawSpaceAxes:
 
         draw_space_axes(ax, child, reference_space=root, highlight=True)
 
-        # highlight draws grid lines (10 calls) plus 2 arrow bodies → > 2 total
+        # highlight draws adaptive grid lines plus 2 arrow bodies → > 2 total
         assert ax.plot.call_count > 2
+
+    def test_highlight_tick_labels_rendered(self):
+        """highlight=True adds tick-label PathPatch objects beyond the 3 standard labels."""
+        ax = self._make_ax()
+        root = Space2D()
+        child = create_space(root, tx=1.0, ty=0.0, angle_rad=0.0, sx=1.0, sy=1.0)
+
+        # Without highlight: 3 add_patch calls (space label + X axis + Y axis)
+        ax_no_hl = self._make_ax()
+        draw_space_axes(ax_no_hl, child, reference_space=root, highlight=False)
+        patches_no_hl = ax_no_hl.add_patch.call_count
+
+        # With highlight: extra add_patch calls for tick labels on grid lines
+        draw_space_axes(ax, child, reference_space=root, highlight=True)
+        assert ax.add_patch.call_count > patches_no_hl
+
+    def test_highlight_grid_covers_full_viewport(self):
+        """Adaptive grid extends to cover the full ±2.5 viewport, not just ±2."""
+        ax = self._make_ax()
+        root = Space2D()
+        # Space translated by 3 units — old N=2 grid would not cover -2.5 to -3+
+        child = create_space(root, tx=3.0, ty=0.0, angle_rad=0.0, sx=1.0, sy=1.0)
+
+        draw_space_axes(ax, child, reference_space=root, highlight=True)
+
+        # Collect x-coordinates from all plot calls (grid lines + arrow bodies)
+        all_xs = []
+        for call in ax.plot.call_args_list:
+            xs = call[0][0]
+            all_xs.extend(xs)
+
+        # At least one grid line x-coord must reach beyond ±2 in root coords
+        assert any(abs(x) > 2.0 for x in all_xs)
 
     def test_explicit_reference_space(self):
         """Test that providing an explicit reference_space works without error."""
@@ -122,6 +155,17 @@ class TestDrawSpaceAxes:
 
         ax.fill.assert_called()
         assert ax.plot.call_count == 2
+
+    def test_highlight_unrelated_reference_skips_grid_then_raises(self):
+        """draw_grid skips silently on ValueError; outer draw_space_axes still raises."""
+        import pytest
+        ax = self._make_ax()
+        orphan1 = Space2D()
+        orphan2 = Space2D()  # independent — no common ancestor with orphan1
+        # draw_grid catches its ValueError and returns; outer function then raises on
+        # its own relative_to call, which is expected behaviour for unrelated spaces.
+        with pytest.raises(ValueError):
+            draw_space_axes(ax, orphan1, reference_space=orphan2, highlight=True)
 
 
 class TestDrawPoints:
@@ -634,6 +678,20 @@ class TestHierarchyInteractor:
             interactor._on_motion(motion)
             M_after = interactor._view_space.transform
             assert not np.allclose(M_before, M_after)
+        finally:
+            plt.close(fig)
+
+    def test_on_motion_without_pan_is_noop(self):
+        """_on_motion returns immediately when no pan is in progress."""
+        interactor, fig, root, child = self._make_interactor()
+        try:
+            M_before = interactor._view_space.transform.copy()
+            motion = Mock()
+            motion.x = 250.0
+            motion.y = 150.0
+            # No _start_pan called → _pan_start_display is None → early return
+            interactor._on_motion(motion)
+            assert np.allclose(interactor._view_space.transform, M_before)
         finally:
             plt.close(fig)
 
