@@ -480,6 +480,18 @@ class _HierarchyInteractor:
         self.fig.canvas.draw_idle()
         self._prev_hovered = self.hovered_node
 
+    def _redraw_axes_only(self) -> None:
+        """Fast redraw of the axes subplot only — used during pan and zoom.
+
+        The graph subplot is static during pan/zoom so skipping it avoids the
+        expensive networkx draw call on every scroll tick or drag frame.
+        """
+        self.ax_axes.clear()
+        self._space_artists = _draw_axes_subplot(
+            self.ax_axes, self.data, self._view_space, hovered_node=self.hovered_node
+        )
+        self.fig.canvas.draw_idle()
+
     def _redraw_hover(self) -> None:
         """Fast hover update: only redraws the spaces whose highlight state changed.
 
@@ -617,7 +629,7 @@ class _HierarchyInteractor:
                 dx = start_data[0] - curr_data[0]
                 dy = start_data[1] - curr_data[1]
                 self._view_space.transform = translate2D(dx, dy) @ self._pan_M0
-                self._redraw()
+                self._redraw_axes_only()
             return
 
         # Hover detection.
@@ -653,7 +665,7 @@ class _HierarchyInteractor:
             @ translate2D(-cx, -cy)
             @ self._view_space.transform
         )
-        self._redraw()
+        self._redraw_axes_only()
 
 
 def draw_space_hierarchy(

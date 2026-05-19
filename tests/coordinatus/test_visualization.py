@@ -825,6 +825,17 @@ class TestHierarchyInteractor:
         finally:
             plt.close(fig)
 
+    def test_redraw_axes_only_does_not_touch_graph(self):
+        interactor, fig, root, child = self._make_interactor(mock_renders=False)
+        try:
+            # Capture graph node count before; _redraw_axes_only must leave the graph unchanged.
+            graph_nodes_before = list(interactor.ax_graph.get_children())
+            interactor._redraw_axes_only()
+            graph_nodes_after = list(interactor.ax_graph.get_children())
+            assert len(graph_nodes_before) == len(graph_nodes_after)
+        finally:
+            plt.close(fig)
+
     def test_redraw_hover_swap_artists(self):
         interactor, fig, root, child = self._make_interactor(mock_renders=False)
         try:
