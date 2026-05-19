@@ -329,7 +329,7 @@ def _compute_figure_size(pos: dict) -> tuple[float, float]:
 
 
 def _draw_hierarchy_subplot(
-    ax, data: _HierarchyRenderData, selected_node=None, hovered_node=None
+    ax, data: _HierarchyRenderData, selected_node=None
 ) -> None:
     """Draw the networkx directed graph (parent → child) on *ax*."""
     node_color_list = [data.colors[n] for n in data.graph.nodes]
@@ -339,9 +339,6 @@ def _draw_hierarchy_subplot(
         if n == selected_node:
             edgecolors.append("black")
             linewidths.append(3.0)
-        elif n == hovered_node:
-            edgecolors.append("grey")
-            linewidths.append(2.0)
         else:
             edgecolors.append("none")
             linewidths.append(1.0)
@@ -367,32 +364,22 @@ def _draw_axes_subplot(
     ax,
     data: _HierarchyRenderData,
     view_space: Space,
-    hovered_node: int | None = None,
-) -> "dict[int, list]":
+) -> None:
     """Draw every space's coordinate frame on *ax* using :func:`draw_space_axes`.
 
     *view_space* is the temporary rendering reference (a child of the selected
     space).  Axes limits are always fixed at ``[-2.5, 2.5]``; pan/zoom are
     encoded in ``view_space.transform``.
-
-    Returns a mapping ``{id(space): [artists]}`` so callers can update
-    individual spaces without a full clear+redraw cycle.
     """
-    space_artists: dict[int, list] = {}
     for space in data.spaces:
         color = data.colors[id(space)]
         label = data.labels[id(space)]
         is_reference = space is view_space.parent
-        is_hovered = hovered_node is not None and id(space) == hovered_node
-        n_lines = len(ax.lines)
-        n_patches = len(ax.patches)
         try:
             draw_space_axes(ax, space, reference_space=view_space,
-                            color=color, label=label, highlight=is_reference or is_hovered)
+                            color=color, label=label, highlight=is_reference)
         except ValueError:
-            space_artists[id(space)] = []
             continue
-        space_artists[id(space)] = list(ax.lines[n_lines:]) + list(ax.patches[n_patches:])
     ref_name = (
         data.labels.get(id(view_space.parent), "root")
         if view_space.parent is not None
@@ -405,7 +392,6 @@ def _draw_axes_subplot(
     ax.set_xlabel("X")
     ax.set_ylabel("Y")
     ax.set_title(f"Coordinate axes (in {ref_name} space)")
-    return space_artists
 
 
 class _HierarchyInteractor:
@@ -413,7 +399,6 @@ class _HierarchyInteractor:
 
     Handles:
     - Left-click on either panel → change the reference space.
-    - Hover over either panel → highlight the space under the cursor.
     - Left-click drag on the axes panel → pan.
     - Scroll wheel on the axes panel → zoom centred on the cursor.
     """
@@ -437,22 +422,12 @@ class _HierarchyInteractor:
         self.selected_node: int | None = (
             id(data.reference_space) if data.reference_space is not None else None
         )
-        self.hovered_node: int | None = None
 
         # View space: rendering reference; never one of the user's spaces.
         # Parent = currently selected space; transform = view offset (identity = look straight).
         self._view_space: Space = Space(
             transform=np.eye(3), parent=data.reference_space or Space2D()
         )
-
-        # Per-space artist tracking for fast hover updates.
-        self._space_artists: dict[int, list] = {}
-        self._prev_hovered: int | None = None
-
-        # Graph node collection — captured after each full draw so hover can
-        # update edge colours without calling nx.draw() again.
-        self._graph_node_collection = None   # matplotlib PathCollection
-        self._graph_node_order: list = []    # node ids in collection order
 
         # Pan state
         self._pan_start_display: tuple[float, float] | None = None
@@ -462,7 +437,6 @@ class _HierarchyInteractor:
         fig.canvas.mpl_connect("motion_notify_event", self._on_motion)
         fig.canvas.mpl_connect("button_release_event", self._on_release)
         fig.canvas.mpl_connect("scroll_event", self._on_scroll)
-        fig.canvas.mpl_connect("axes_leave_event", self._on_axes_leave)
 
         # Initial draw — must happen after event connections so the canvas exists.
         self._redraw()
@@ -472,24 +446,11 @@ class _HierarchyInteractor:
     def _redraw(self) -> None:
         """Full redraw: axes limits always fixed at [-2.5, 2.5]; pan/zoom in _view_space."""
         self.ax_graph.clear()
-        _draw_hierarchy_subplot(
-            self.ax_graph, self.data,
-            selected_node=self.selected_node,
-            hovered_node=self.hovered_node,
-        )
-        self._graph_node_order = list(self.data.graph.nodes)
-        self._graph_node_collection = next(
-            (c for c in self.ax_graph.get_children()
-             if hasattr(c, 'set_edgecolors')),
-            None,
-        )
+        _draw_hierarchy_subplot(self.ax_graph, self.data, selected_node=self.selected_node)
         self.ax_axes.clear()
-        self._space_artists = _draw_axes_subplot(
-            self.ax_axes, self.data, self._view_space, hovered_node=self.hovered_node
-        )
+        _draw_axes_subplot(self.ax_axes, self.data, self._view_space)
         self.fig.suptitle(self.title)
         self.fig.canvas.draw_idle()
-        self._prev_hovered = self.hovered_node
 
     def _redraw_axes_only(self) -> None:
         """Fast redraw of the axes subplot only — used during pan and zoom.
@@ -498,88 +459,8 @@ class _HierarchyInteractor:
         expensive networkx draw call on every scroll tick or drag frame.
         """
         self.ax_axes.clear()
-        self._space_artists = _draw_axes_subplot(
-            self.ax_axes, self.data, self._view_space, hovered_node=self.hovered_node
-        )
+        _draw_axes_subplot(self.ax_axes, self.data, self._view_space)
         self.fig.canvas.draw_idle()
-
-    def _update_graph_hover(self) -> None:
-        """Update graph node edge colours for hover/selection without a full nx.draw().
-
-        Directly mutates the edge colours and linewidths on the existing
-        PathCollection, avoiding the expensive clear + networkx redraw on every
-        mouse-move event.
-        """
-        coll = self._graph_node_collection
-        if coll is None:
-            return
-        edge_colors = []
-        line_widths = []
-        for n in self._graph_node_order:
-            if n == self.selected_node:
-                edge_colors.append("black")
-                line_widths.append(3.0)
-            elif n == self.hovered_node:
-                edge_colors.append("grey")
-                line_widths.append(2.0)
-            else:
-                edge_colors.append("none")
-                line_widths.append(1.0)
-        coll.set_edgecolors(edge_colors)
-        coll.set_linewidths(line_widths)
-
-    def _redraw_hover(self) -> None:
-        """Fast hover update: only redraws the spaces whose highlight state changed.
-
-        The graph node edge colours are updated in-place on the existing
-        PathCollection (no clear + nx.draw call).
-        The axes subplot is updated in-place: only the artists belonging to the
-        previously-hovered and newly-hovered spaces are removed and redrawn,
-        so the rest of the scene is untouched and no ``ax.clear()`` is needed.
-        """
-
-        # Graph subplot: update node edge colours in-place (no nx.draw).
-        self._update_graph_hover()
-
-        # Axes subplot: swap only the spaces whose highlight state changed.
-        prev = self._prev_hovered
-        curr = self.hovered_node
-        spaces_to_update: set[int] = set()
-        if prev is not None and prev != curr:
-            spaces_to_update.add(prev)
-        if curr is not None and curr != prev:
-            spaces_to_update.add(curr)
-
-        for space_id in spaces_to_update:
-            for artist in self._space_artists.get(space_id, []):
-                try:
-                    artist.remove()
-                except ValueError:
-                    pass
-            space = self.id_to_space.get(space_id)
-            if space is None:
-                continue
-            color = self.data.colors[space_id]
-            label = self.data.labels.get(space_id, "")
-            is_ref = space is self._view_space.parent
-            is_hov = space_id == curr
-            n_lines = len(self.ax_axes.lines)
-            n_patches = len(self.ax_axes.patches)
-            draw_space_axes(
-                self.ax_axes, space,
-                reference_space=self._view_space,
-                color=color, label=label,
-                highlight=is_ref or is_hov,
-            )
-            self._space_artists[space_id] = (
-                list(self.ax_axes.lines[n_lines:])
-                + list(self.ax_axes.patches[n_patches:])
-            )
-
-        self.ax_axes.set_xlim(-2.5, 2.5)
-        self.ax_axes.set_ylim(-2.5, 2.5)
-        self.fig.canvas.draw_idle()
-        self._prev_hovered = curr
 
     # ── hit-testing helpers ────────────────────────────────────────────────
 
@@ -651,40 +532,23 @@ class _HierarchyInteractor:
         self._pan_inv_transform = self.ax_axes.transData.inverted()
 
     def _on_motion(self, event) -> None:
-        # Pan takes priority over hover detection.
-        if self._pan_start_display is not None:
-            if event.x is not None:
-                assert self._pan_inv_transform is not None
-                assert self._pan_M0 is not None
-                start_data = self._pan_inv_transform.transform(self._pan_start_display)
-                curr_data = self._pan_inv_transform.transform((event.x, event.y))
-                dx = start_data[0] - curr_data[0]
-                dy = start_data[1] - curr_data[1]
-                self._view_space.transform = translate2D(dx, dy) @ self._pan_M0
-                self._redraw_axes_only()
+        if self._pan_start_display is None:
             return
-
-        # Hover detection.
-        new_hover: int | None = None
-        if event.inaxes is self.ax_graph and event.xdata is not None:
-            new_hover = self._node_at_graph_pos(event.xdata, event.ydata)
-        elif event.inaxes is self.ax_axes and event.xdata is not None:
-            new_hover = self._node_at_axes_pos(event.xdata, event.ydata)
-
-        if new_hover != self.hovered_node:
-            self.hovered_node = new_hover
-            self._redraw_hover()
+        if event.x is not None:
+            assert self._pan_inv_transform is not None
+            assert self._pan_M0 is not None
+            start_data = self._pan_inv_transform.transform(self._pan_start_display)
+            curr_data = self._pan_inv_transform.transform((event.x, event.y))
+            dx = start_data[0] - curr_data[0]
+            dy = start_data[1] - curr_data[1]
+            self._view_space.transform = translate2D(dx, dy) @ self._pan_M0
+            self._redraw_axes_only()
 
     def _on_release(self, event) -> None:
         if event.button == 1:
             self._pan_start_display = None
             self._pan_M0 = None
             self._pan_inv_transform = None
-
-    def _on_axes_leave(self, event) -> None:
-        if self.hovered_node is not None:
-            self.hovered_node = None
-            self._redraw_hover()
 
     def _on_scroll(self, event) -> None:
         if event.inaxes is not self.ax_axes or event.xdata is None:

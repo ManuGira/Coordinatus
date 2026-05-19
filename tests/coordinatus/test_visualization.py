@@ -1,4 +1,4 @@
-"""Unit tests for visualization functions."""
+﻿"""Unit tests for visualization functions."""
 
 import matplotlib
 matplotlib.use("Agg")  # must be before any pyplot import
@@ -433,19 +433,6 @@ class TestDrawHierarchySubplot:
         finally:
             plt.close(fig)
 
-    def test_selected_and_hovered_nodes(self):
-        data, spaces = _make_data()
-        root, child = spaces
-        fig, ax = plt.subplots()
-        try:
-            _draw_hierarchy_subplot(
-                ax, data,
-                selected_node=id(root),
-                hovered_node=id(child),
-            )
-        finally:
-            plt.close(fig)
-
     def test_title_set(self):
         data, _ = _make_data()
         fig, ax = plt.subplots()
@@ -458,27 +445,6 @@ class TestDrawHierarchySubplot:
 
 class TestDrawAxesSubplot:
     """Tests for _draw_axes_subplot using real Agg axes."""
-
-    def test_returns_artist_map_for_each_space(self):
-        data, spaces = _make_data()
-        view_space = Space(transform=np.eye(3), parent=data.reference_space)
-        fig, ax = plt.subplots()
-        try:
-            artists = _draw_axes_subplot(ax, data, view_space)
-            assert len(artists) == len(spaces)
-        finally:
-            plt.close(fig)
-
-    def test_hovered_node_highlighted(self):
-        data, spaces = _make_data()
-        root, child = spaces
-        view_space = Space(transform=np.eye(3), parent=data.reference_space)
-        fig, ax = plt.subplots()
-        try:
-            artists = _draw_axes_subplot(ax, data, view_space, hovered_node=id(child))
-            assert len(artists) == 2
-        finally:
-            plt.close(fig)
 
     def test_root_title_when_no_reference(self):
         r1, r2 = Space2D(), Space2D()
@@ -529,13 +495,13 @@ class TestHierarchyInteractor:
         """Create an interactor for testing.
 
         By default (``mock_renders=True``) the initial ``_redraw()`` is
-        suppressed and both ``_redraw`` / ``_redraw_hover`` are replaced with
-        :class:`~unittest.mock.Mock` objects on the instance so that tests
+        suppressed and ``_redraw`` is replaced with a
+        :class:`~unittest.mock.Mock` object on the instance so that tests
         which only exercise state logic (pan, selection, hit-testing, …) do
         not pay for a full matplotlib render.
 
         Pass ``mock_renders=False`` for tests that need to invoke the real
-        rendering methods (e.g. ``_redraw_hover`` branch-coverage tests).
+        rendering methods.
         """
         root = Space2D()
         child = create_space(root, tx=1.0, ty=0.0, angle_rad=0.0, sx=1.0, sy=1.0)
@@ -552,7 +518,6 @@ class TestHierarchyInteractor:
         if mock_renders:
             # Suppress any further renders triggered by event-handler logic.
             interactor._redraw = Mock()  # type: ignore[method-assign]
-            interactor._redraw_hover = Mock()  # type: ignore[method-assign]
         return interactor, fig, root, child
 
     # ── initial state ───────────────────────────────────────────────────────
@@ -561,13 +526,6 @@ class TestHierarchyInteractor:
         interactor, fig, root, child = self._make_interactor()
         try:
             assert interactor.selected_node == id(root)
-        finally:
-            plt.close(fig)
-
-    def test_initial_hover_none(self):
-        interactor, fig, root, child = self._make_interactor()
-        try:
-            assert interactor.hovered_node is None
         finally:
             plt.close(fig)
 
@@ -762,69 +720,6 @@ class TestHierarchyInteractor:
         finally:
             plt.close(fig)
 
-    # ── hover ────────────────────────────────────────────────────────────────
-
-    def test_on_axes_leave_clears_hover(self):
-        interactor, fig, root, child = self._make_interactor()
-        try:
-            interactor.hovered_node = id(root)
-            event = Mock()
-            interactor._on_axes_leave(event)
-            assert interactor.hovered_node is None
-        finally:
-            plt.close(fig)
-
-    def test_on_axes_leave_noop_when_no_hover(self):
-        interactor, fig, root, child = self._make_interactor()
-        try:
-            interactor.hovered_node = None
-            event = Mock()
-            interactor._on_axes_leave(event)  # should not raise
-        finally:
-            plt.close(fig)
-
-    def test_on_motion_hover_graph(self):
-        interactor, fig, root, child = self._make_interactor()
-        try:
-            rx, ry = interactor.data.pos[id(child)]
-            event = Mock()
-            event.inaxes = interactor.ax_graph
-            event.xdata = rx
-            event.ydata = ry
-            interactor._on_motion(event)
-            assert interactor.hovered_node == id(child)
-        finally:
-            plt.close(fig)
-
-    def test_on_motion_hover_axes(self):
-        interactor, fig, root, child = self._make_interactor()
-        try:
-            event = Mock()
-            event.inaxes = interactor.ax_axes
-            # Child origin is at (1, 0) in root coords
-            event.xdata = 1.0
-            event.ydata = 0.0
-            interactor._on_motion(event)
-            assert interactor.hovered_node == id(child)
-        finally:
-            plt.close(fig)
-
-    def test_on_motion_hover_unchanged_no_redraw(self):
-        interactor, fig, root, child = self._make_interactor()
-        try:
-            # Pre-set hover to root
-            interactor.hovered_node = id(root)
-            event = Mock()
-            event.inaxes = interactor.ax_graph
-            rx, ry = interactor.data.pos[id(root)]
-            event.xdata = rx
-            event.ydata = ry
-            # hover is the same → no _redraw_hover call
-            interactor._on_motion(event)
-            assert interactor.hovered_node == id(root)
-        finally:
-            plt.close(fig)
-
     def test_redraw_axes_only_does_not_touch_graph(self):
         interactor, fig, root, child = self._make_interactor(mock_renders=False)
         try:
@@ -833,47 +728,6 @@ class TestHierarchyInteractor:
             interactor._redraw_axes_only()
             graph_nodes_after = list(interactor.ax_graph.get_children())
             assert len(graph_nodes_before) == len(graph_nodes_after)
-        finally:
-            plt.close(fig)
-
-    def test_update_graph_hover_changes_edge_colors(self):
-        interactor, fig, root, child = self._make_interactor(mock_renders=False)
-        try:
-            interactor._redraw()  # populate _graph_node_collection
-            assert interactor._graph_node_collection is not None
-            interactor.hovered_node = id(child)
-            interactor._update_graph_hover()
-            ec = interactor._graph_node_collection.get_edgecolors()
-            # At least one node should have a non-"none" edge color (the hovered one).
-            assert ec is not None and len(ec) > 0
-        finally:
-            plt.close(fig)
-
-    def test_update_graph_hover_no_collection_noop(self):
-        interactor, fig, root, child = self._make_interactor(mock_renders=False)
-        try:
-            interactor._graph_node_collection = None
-            interactor._update_graph_hover()  # should not raise
-        finally:
-            plt.close(fig)
-
-    def test_redraw_hover_swap_artists(self):
-        interactor, fig, root, child = self._make_interactor(mock_renders=False)
-        try:
-            interactor.hovered_node = id(child)
-            interactor._prev_hovered = None
-            interactor._redraw_hover()
-            assert interactor._prev_hovered == id(child)
-        finally:
-            plt.close(fig)
-
-    def test_redraw_hover_remove_old_add_new(self):
-        interactor, fig, root, child = self._make_interactor(mock_renders=False)
-        try:
-            # Simulate hover changing from root to child
-            interactor._prev_hovered = id(root)
-            interactor.hovered_node = id(child)
-            interactor._redraw_hover()
         finally:
             plt.close(fig)
 
@@ -969,32 +823,6 @@ class TestHierarchyInteractor:
             assert result == id(root)
         finally:
             plt.close(fig)
-
-    def test_redraw_hover_artist_remove_valueerror(self):
-        """Covers except ValueError in artist.remove() inside _redraw_hover."""
-        interactor, fig, root, child = self._make_interactor(mock_renders=False)
-        try:
-            bad_artist = Mock()
-            bad_artist.remove.side_effect = ValueError("already removed")
-            interactor._space_artists[id(child)] = [bad_artist]
-            interactor._prev_hovered = id(child)
-            interactor.hovered_node = None  # trigger removal of child's artists
-            interactor._redraw_hover()  # should not raise
-        finally:
-            plt.close(fig)
-
-    def test_redraw_hover_unknown_space_id(self):
-        """Covers the 'if space is None: continue' guard in _redraw_hover."""
-        interactor, fig, root, child = self._make_interactor(mock_renders=False)
-        try:
-            fake_id = 999999999  # not in id_to_space
-            interactor._space_artists[fake_id] = []
-            interactor._prev_hovered = fake_id
-            interactor.hovered_node = None
-            interactor._redraw_hover()  # should not raise
-        finally:
-            plt.close(fig)
-
 
 # ---------------------------------------------------------------------------
 # draw_space_hierarchy public API
