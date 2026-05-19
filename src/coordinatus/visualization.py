@@ -366,11 +366,14 @@ def _draw_hierarchy_subplot(
 def _draw_axes_subplot(
     ax,
     data: _HierarchyRenderData,
+    view_space: Space,
     hovered_node: int | None = None,
-    xlim: tuple | None = None,
-    ylim: tuple | None = None,
 ) -> "dict[int, list]":
     """Draw every space's coordinate frame on *ax* using :func:`draw_space_axes`.
+
+    *view_space* is the temporary rendering reference (a child of the selected
+    space).  Axes limits are always fixed at ``[-2.5, 2.5]``; pan/zoom are
+    encoded in ``view_space.transform``.
 
     Returns a mapping ``{id(space): [artists]}`` so callers can update
     individual spaces without a full clear+redraw cycle.
@@ -379,24 +382,25 @@ def _draw_axes_subplot(
     for space in data.spaces:
         color = data.colors[id(space)]
         label = data.labels[id(space)]
-        is_reference = (
-            data.reference_space is not None
-            and space is data.reference_space
-        )
+        is_reference = space is view_space.parent
         is_hovered = hovered_node is not None and id(space) == hovered_node
         n_lines = len(ax.lines)
         n_patches = len(ax.patches)
-        draw_space_axes(ax, space, reference_space=data.reference_space,
-                        color=color, label=label, highlight=is_reference or is_hovered)
+        try:
+            draw_space_axes(ax, space, reference_space=view_space,
+                            color=color, label=label, highlight=is_reference or is_hovered)
+        except ValueError:
+            space_artists[id(space)] = []
+            continue
         space_artists[id(space)] = list(ax.lines[n_lines:]) + list(ax.patches[n_patches:])
     ref_name = (
-        data.labels.get(id(data.reference_space), "root")
-        if data.reference_space is not None
+        data.labels.get(id(view_space.parent), "root")
+        if view_space.parent is not None
         else "absolute"
     )
     ax.set_aspect("equal")
-    ax.set_xlim(xlim if xlim is not None else (-2.5, 2.5))
-    ax.set_ylim(ylim if ylim is not None else (-2.5, 2.5))
+    ax.set_xlim(-2.5, 2.5)
+    ax.set_ylim(-2.5, 2.5)
     ax.grid(True, alpha=0.3)
     ax.set_xlabel("X")
     ax.set_ylabel("Y")
@@ -461,7 +465,7 @@ class _HierarchyInteractor:
     # ── drawing helpers ────────────────────────────────────────────────────
 
     def _redraw(self) -> None:
-        """Full redraw: resets the axes view to [-2.5, 2.5]."""
+        """Full redraw: axes limits always fixed at [-2.5, 2.5]; pan/zoom in _view_space."""
         self.ax_graph.clear()
         _draw_hierarchy_subplot(
             self.ax_graph, self.data,
@@ -470,7 +474,7 @@ class _HierarchyInteractor:
         )
         self.ax_axes.clear()
         self._space_artists = _draw_axes_subplot(
-            self.ax_axes, self.data, hovered_node=self.hovered_node
+            self.ax_axes, self.data, self._view_space, hovered_node=self.hovered_node
         )
         self.fig.suptitle(self.title)
         self.fig.canvas.draw_idle()
@@ -484,8 +488,6 @@ class _HierarchyInteractor:
         previously-hovered and newly-hovered spaces are removed and redrawn,
         so the rest of the scene is untouched and no ``ax.clear()`` is needed.
         """
-        xlim = self.ax_axes.get_xlim()
-        ylim = self.ax_axes.get_ylim()
 
         # Graph subplot: clear + redraw (fast — few nodes).
         self.ax_graph.clear()
@@ -515,16 +517,13 @@ class _HierarchyInteractor:
                 continue
             color = self.data.colors[space_id]
             label = self.data.labels.get(space_id, "")
-            is_ref = (
-                self.data.reference_space is not None
-                and space is self.data.reference_space
-            )
+            is_ref = space is self._view_space.parent
             is_hov = space_id == curr
             n_lines = len(self.ax_axes.lines)
             n_patches = len(self.ax_axes.patches)
             draw_space_axes(
                 self.ax_axes, space,
-                reference_space=self.data.reference_space,
+                reference_space=self._view_space,
                 color=color, label=label,
                 highlight=is_ref or is_hov,
             )
@@ -533,8 +532,8 @@ class _HierarchyInteractor:
                 + list(self.ax_axes.patches[n_patches:])
             )
 
-        self.ax_axes.set_xlim(xlim)
-        self.ax_axes.set_ylim(ylim)
+        self.ax_axes.set_xlim(-2.5, 2.5)
+        self.ax_axes.set_ylim(-2.5, 2.5)
         self.fig.canvas.draw_idle()
         self._prev_hovered = curr
 
@@ -555,17 +554,14 @@ class _HierarchyInteractor:
         return closest if dist_sq <= 0.25 and closest in self.id_to_space else None
 
     def _node_at_axes_pos(self, cx: float, cy: float) -> int | None:
-        """Return id(space) whose origin is closest to (cx, cy) in reference coords, or None."""
+        """Return id(space) whose origin is closest to (cx, cy) in view-space coords, or None."""
         best_id: int | None = None
         best_dist_sq = 0.15 ** 2  # threshold in data-units squared
         for space in self.data.spaces:
             try:
-                if self.data.reference_space is not None:
-                    origin = Point(np.array([0.0, 0.0]), space=space).relative_to(
-                        self.data.reference_space
-                    )
-                else:
-                    origin = Point(np.array([0.0, 0.0]), space=space).to_absolute()
+                origin = Point(np.array([0.0, 0.0]), space=space).relative_to(
+                    self._view_space
+                )
                 ox, oy = float(origin.coords[0]), float(origin.coords[1])
                 dist_sq = (cx - ox) ** 2 + (cy - oy) ** 2
                 if dist_sq < best_dist_sq:

@@ -461,9 +461,10 @@ class TestDrawAxesSubplot:
 
     def test_returns_artist_map_for_each_space(self):
         data, spaces = _make_data()
+        view_space = Space(transform=np.eye(3), parent=data.reference_space)
         fig, ax = plt.subplots()
         try:
-            artists = _draw_axes_subplot(ax, data)
+            artists = _draw_axes_subplot(ax, data, view_space)
             assert len(artists) == len(spaces)
         finally:
             plt.close(fig)
@@ -471,41 +472,48 @@ class TestDrawAxesSubplot:
     def test_hovered_node_highlighted(self):
         data, spaces = _make_data()
         root, child = spaces
+        view_space = Space(transform=np.eye(3), parent=data.reference_space)
         fig, ax = plt.subplots()
         try:
-            artists = _draw_axes_subplot(ax, data, hovered_node=id(child))
+            artists = _draw_axes_subplot(ax, data, view_space, hovered_node=id(child))
             assert len(artists) == 2
         finally:
             plt.close(fig)
 
-    def test_absolute_title_when_no_reference(self):
+    def test_root_title_when_no_reference(self):
         r1, r2 = Space2D(), Space2D()
         labels = {id(r1): "A", id(r2): "B"}
         data = _build_hierarchy_render_data([r1, r2], labels)
+        # When data has multiple roots, view_space parent is one of the actual spaces.
+        # Spaces in different sub-trees are gracefully skipped during rendering.
+        view_space = Space(transform=np.eye(3), parent=r1)
         fig, ax = plt.subplots()
         try:
-            _draw_axes_subplot(ax, data)
-            assert "absolute" in ax.get_title()
+            _draw_axes_subplot(ax, data, view_space)
+            assert labels[id(r1)] in ax.get_title()
         finally:
             plt.close(fig)
 
     def test_named_reference_in_title(self):
         data, spaces = _make_data()
         root = spaces[0]
+        view_space = Space(transform=np.eye(3), parent=data.reference_space)
         fig, ax = plt.subplots()
         try:
-            _draw_axes_subplot(ax, data)
+            _draw_axes_subplot(ax, data, view_space)
             assert data.labels[id(root)] in ax.get_title()
         finally:
             plt.close(fig)
 
-    def test_custom_xlim_ylim(self):
+    def test_fixed_xlim_ylim(self):
+        # Limits are always fixed at [-2.5, 2.5]; pan/zoom encoded in view_space.
         data, _ = _make_data()
+        view_space = Space(transform=np.eye(3), parent=data.reference_space)
         fig, ax = plt.subplots()
         try:
-            _draw_axes_subplot(ax, data, xlim=(-5.0, 5.0), ylim=(-4.0, 4.0))
-            np.testing.assert_allclose(ax.get_xlim(), (-5.0, 5.0))
-            np.testing.assert_allclose(ax.get_ylim(), (-4.0, 4.0))
+            _draw_axes_subplot(ax, data, view_space)
+            np.testing.assert_allclose(ax.get_xlim(), (-2.5, 2.5))
+            np.testing.assert_allclose(ax.get_ylim(), (-2.5, 2.5))
         finally:
             plt.close(fig)
 

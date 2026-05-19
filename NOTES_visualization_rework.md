@@ -18,7 +18,8 @@ parts: 1
 ## Status
 - Step 1 ✅ done May 19 2026; animation code removed, CI passing, 100% test coverage
 - Step 2 ✅ done May 19 2026; `_view_space` added to `__init__`, `_pan_xlim`/`_pan_ylim` removed from `__init__`, 84 tests passing
-- Steps 3–7 not started; Step 7 deferred until Steps 1–6 pass tests
+- Step 3 ✅ done May 19 2026; `_draw_axes_subplot` takes `view_space`, fixed limits, `_node_at_axes_pos` and `_redraw*` use `_view_space`, graceful skip for unrelated spaces, 84 tests passing
+- Steps 4–7 not started; Step 7 deferred until Steps 1–6 pass tests
 
 ## Current Architecture (as of May 19 2026)
 - `draw_space_hierarchy(spaces, labels, title)`: two subplots — `ax_graph` (networkx directed graph left), `ax_axes` (coordinate frames via `draw_space_axes` right)
