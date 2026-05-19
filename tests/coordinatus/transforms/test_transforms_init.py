@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 from coordinatus.transforms import (
     translate2D, rotate2D, scale2D, shear2D, trs2D, trks2D, ts1D,
-    decompose_trks2d, interpolate_trks2d,
+    decompose_trks2d, interpolate_trks2d, complex_multiplication,
 )
 
 class TestTRS2D:
@@ -360,4 +360,87 @@ class TestInterpolateTrks2d:
         result_25 = interpolate_trks2d(M0, M1, 0.25)
         tx_25 = decompose_trks2d(result_25)[0]
         assert tx_25 < 2.5  # smoothstep lags behind linear near t=0
+
+
+class TestComplexMultiplication:
+    """Tests for complex_multiplication transformation matrix."""
+
+    def test_identity_real_one_imag_zero(self):
+        """real=1, imag=0 (complex 1) gives the identity matrix."""
+        M = complex_multiplication(1.0, 0.0)
+        np.testing.assert_array_almost_equal(M, np.eye(3))
+
+    def test_shape_is_3x3(self):
+        """Result is always a 3x3 matrix."""
+        assert complex_multiplication(2.0, 3.0).shape == (3, 3)
+
+    def test_bottom_row_is_affine(self):
+        """The bottom row is always [0, 0, 1]."""
+        M = complex_multiplication(1.5, -0.5)
+        np.testing.assert_array_almost_equal(M[2, :], [0.0, 0.0, 1.0])
+
+    def test_pure_imaginary_i_is_90_degree_rotation(self):
+        """real=0, imag=1 (i) is equivalent to a 90-degree CCW rotation."""
+        M = complex_multiplication(0.0, 1.0)
+        expected = rotate2D(np.pi / 2)
+        np.testing.assert_array_almost_equal(M, expected)
+
+    def test_pure_real_is_uniform_scaling(self):
+        """real=r, imag=0 is equivalent to uniform scaling by r."""
+        M = complex_multiplication(3.0, 0.0)
+        expected = scale2D(3.0, 3.0)
+        np.testing.assert_array_almost_equal(M, expected)
+
+    def test_unit_complex_number_is_pure_rotation(self):
+        """A unit complex number (|z|=1) produces a pure rotation matrix."""
+        angle = np.pi / 4
+        M = complex_multiplication(np.cos(angle), np.sin(angle))
+        expected = rotate2D(angle)
+        np.testing.assert_array_almost_equal(M, expected)
+
+    def test_rotation_angle_matches_atan2(self):
+        """The rotation angle encoded in the matrix equals atan2(imag, real)."""
+        real, imag = 1.0, 1.0  # 45-degree angle, magnitude sqrt(2)
+        M = complex_multiplication(real, imag)
+        angle = np.arctan2(imag, real)  # pi/4
+        # Upper-left 2x2 block divided by magnitude should equal the rotation
+        magnitude = np.sqrt(real ** 2 + imag ** 2)
+        np.testing.assert_array_almost_equal(M[:2, :2] / magnitude, rotate2D(angle)[:2, :2])
+
+    def test_scaling_factor_matches_magnitude(self):
+        """The scaling factor encoded equals the modulus sqrt(real^2 + imag^2)."""
+        real, imag = 3.0, 4.0  # magnitude = 5
+        M = complex_multiplication(real, imag)
+        # Scaling factor is the norm of the first column of the linear part
+        sx = np.sqrt(M[0, 0] ** 2 + M[1, 0] ** 2)
+        assert sx == pytest.approx(5.0)
+
+    def test_matrix_values_match_formula(self):
+        """Matrix entries match the closed-form [[real, -imag, 0], [imag, real, 0], [0, 0, 1]]."""
+        real, imag = 2.5, -1.3
+        M = complex_multiplication(real, imag)
+        expected = np.array([
+            [real, -imag, 0],
+            [imag,  real, 0],
+            [   0,     0, 1],
+        ], dtype=float)
+        np.testing.assert_array_almost_equal(M, expected)
+
+    def test_multiplication_by_minus_one_is_180_degree_rotation(self):
+        """real=-1, imag=0 is a 180-degree rotation (negates both axes)."""
+        M = complex_multiplication(-1.0, 0.0)
+        expected = rotate2D(np.pi)
+        np.testing.assert_array_almost_equal(M, expected)
+
+    def test_composition_equals_complex_product(self):
+        """M(z1) @ M(z2) == M(z1 * z2) (homomorphism property)."""
+        r1, i1 = 2.0, 1.0
+        r2, i2 = 0.5, -0.5
+        # z1 * z2 in C: (r1+i1*j)*(r2+i2*j) = (r1*r2 - i1*i2) + (r1*i2 + i1*r2)*j
+        r12 = r1 * r2 - i1 * i2
+        i12 = r1 * i2 + i1 * r2
+        M1 = complex_multiplication(r1, i1)
+        M2 = complex_multiplication(r2, i2)
+        M12 = complex_multiplication(r12, i12)
+        np.testing.assert_array_almost_equal(M1 @ M2, M12)
 
