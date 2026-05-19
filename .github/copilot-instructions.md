@@ -1,230 +1,91 @@
-# Coordinatus — Copilot Instructions
-
-> **Before making any architectural decision, read the [Project Architecture](#project-architecture) section below.**
-> It contains the authoritative map of the project's modules, types, design rules,
-> and invariants. Do not propose or implement structural changes without consulting it first.
-
+---
+type: bmad-distillate
+sources:
+  - "copilot-instructions.md"
+downstream_consumer: "general"
+created: "2026-05-19"
+token_estimate: 870
+parts: 1
 ---
 
-## Git
+## Tooling and Commands
+- Git: run `git` in terminal; do NOT use GitKraken MCP tools
+- Python runner: `uv run myscript.py` (NOT `python myscript.py`); with args: `uv run python myscript.py --help`; always use `uv run` for automation/AI agent execution
+- Examples: `uv run examples/example_script.py`
+- Single test: `uv run pytest tests/coordinatus/test_example.py`
+- All tests: `./ci.ps1` (preferred over `uv run pytest tests`); runs pytest, coverage, ruff linting
+- ci.ps1 switches: `-SkipTests`, `-SkipStyle`, `-SkipTypes`, `-SkipNotebooks` (combinable)
+- Notebooks: never start/restart kernel interactively (blocks); execute via `uv run jupyter nbconvert --to notebook --execute --ExecutePreprocessor.timeout=60 --inplace notebooks/my_notebook.ipynb`; always set `--ExecutePreprocessor.timeout`
 
-Prefer running `git` commands directly in the terminal over using the GitKraken MCP server tools.
+## Commit Messages
+- Format: `<type>[optional scope][optional !]: <description>` + optional blank-line-separated body + optional footers
+- `fix`: bug fix → PATCH; `feat`: new feature → MINOR; BREAKING CHANGE → MAJOR
+- Breaking change: `!` before `:` (e.g. `feat!: ...`) OR `BREAKING CHANGE: <description>` footer; both MAY be used together
+- Other types (no implicit SemVer effect): `build`, `chore`, `ci`, `docs`, `style`, `refactor`, `perf`, `test`, `revert`
+- Scope: optional noun in parentheses after type, e.g. `feat(parser): add array parsing`
+- Footer format: `Token: value` or `Token #value`; token uses `-` for spaces (e.g. `Reviewed-by`); exception: `BREAKING CHANGE` (uppercase, spaces allowed); `BREAKING-CHANGE` is synonymous
+- If commit fits multiple types, prefer splitting into multiple commits
 
----
-
-## Running Python Scripts with UV
-
-This project uses **`uv`** to manage Python scripts instead of the traditional `python` command.
-
-To run any Python script in this project, use:
-
-```powershell
-uv run myscript.py
-```
-
-**NOT:**
-```powershell
-python myscript.py
-```
+## Code Style
+- Type hints: built-in types only (`list[str]`, `dict[str, int]`, `tuple`) — no `from typing import List, Dict, Tuple`
+- Dimensions: ASCII `x` (`2x2`, `3x3`) not Unicode `×`
 
 ## Project Structure
+- Source: `src/coordinatus/`; examples: `examples/`; tests: `tests/` (mirrors src/, filenames prefixed `test_`)
+- `__init__.py`: public re-exports (Space*, Coordinate, Point, Vector)
+- `types.py`: CoordinateKind enum (POINT | VECTOR)
+- `space.py`: Space hierarchy and factory helpers
+- `coordinate.py`: Coordinate base class + Point, Vector subclasses
+- `visualization.py`: optional matplotlib helpers (extras: `coordinatus[plotting]`)
+- `transforms/__init__.py`: composites ts1D, trs2D, trks2D
+- `transforms/translate.py`: translate, translate1D/2D/3D
+- `transforms/rotate.py`: rotate2D, rotate3Dx/y/z, rotate3D
+- `transforms/scale.py`: scale, scale1D/2D/3D, shear2D
+- `transforms/dimension.py`: reduce_dim, augment_dim, swap_axes, project_*
 
-Package source code is located in the `src/coordinatus` directory and examples in the `examples/` directory.
-To run a script located in the `examples/` directory, use:
+## Architecture — Philosophy
+- Every coordinate lives inside a Space; Space describes how it relates to its parent; coordinates never bare numbers
+- Spaces form scene-graph hierarchy; conversion requires common ancestor; else → ValueError
+- Read Project Architecture before any architectural decision; do not propose structural changes without consulting it
 
-```powershell
-uv run examples/example_script.py
-```
+## Architecture — CoordinateKind
+- POINT (weight=1): position; affected by translation, rotation, scaling
+- VECTOR (weight=0): direction/displacement; rotation and scaling only
+- Applied by `transform_coordinate()` when building homogeneous coordinate vectors
 
-All tests are located in the `tests/` directory. The structure of the tests mirrors that of the `src/` directory. Test file names are prefixed with `test_`. For example, the test for `src/coordinatus/transforms/rotate.py` would be located at `tests/coordinatus/transforms/test_rotate.py`.
+## Architecture — Space
+- Wraps single (D+1)x(D+1) homogeneous transform matrix + optional parent Space reference
+- Space1D: eye(2); Space2D: eye(3); Space3D: eye(4); Space4D: eye(5); SpaceND: eye(N+1); Space: explicit matrix (child with transform)
+- `Space(transform=None)` → ValueError; always provide matrix or use typed subclass
+- `get_root()`: walks parent chain; used for common ancestor check
+- `compute_absolute_transform()`: multiplies transforms from self to root
+- `compute_relative_transform_to(target)`: ValueError if different roots; else returns combined matrix
+- `create_space(parent, tx, ty, angle_rad, sx, sy)`: 2D factory via trs2D → returns Space
 
-## Continuous Integration and Testing
+## Architecture — Coordinate, Point, Vector
+- Coordinate stores: kind (CoordinateKind), coords (np.ndarray: (D,) single or (D,N) batch), space (Space)
+- space=None → identity space auto-created for appropriate dimension
+- Point/Vector: thin subclasses fixing kind; omit kind arg from constructors
+- `to_absolute()`: applies compute_absolute_transform(); returns coords in root's identity space
+- `relative_to(target_space)`: calls compute_relative_transform_to on spaces; ValueError if no common ancestor
+- `transform_coordinate(transform, coordinates, kind)`: low-level; converts to homogeneous, applies matrix, converts back
+- Arithmetic (+, -, *, /, unary -): element-wise; both operands must be in same space (Space.__eq__)
 
-Tests are run using `uv`.
+## Architecture — Transforms
+- All functions return plain np.ndarray homogeneous matrices; never create/reference Space
+- translate/translate1D/2D/3D; rotate2D (CCW); rotate3Dx/y/z; rotate3D (arbitrary axis); scale/scale1D/2D/3D; shear2D (kx, ky); swap_axes; reduce_dim; augment_dim; project_*
+- Composites: ts1D = T@S (tx, sx); trs2D = T@R@S (tx, ty, angle_rad, sx, sy); trks2D = T@R@K@S (adds kx, ky shear)
 
-Run individual test files like so:
-```powershell
-uv run pytest tests/coordinatus/test_example.py
-```
+## Architecture — Visualization
+- Only importable when matplotlib installed (extras: `coordinatus[plotting]`)
+- `draw_space_axes(ax, space, reference_space, …)`: draws origin and axis arrows of space as seen from reference_space; reference_space=None → to_absolute()
+- `draw_points(ax, points, reference_space, …)`: plots list of Point objects; optional connecting lines and labels; reference_space=None → to_absolute()
 
-To run all tests at once the command `uv run pytest tests` works but it is preferred to use the `ci.ps1` script:
-```powershell
-./ci.ps1
-```
-It will run all tests, generate coverage reports, and perform linting checks.
+## Architecture — Dimensionality Rules
+- 2x2→1D/Space1D; 3x3→2D/Space2D; 4x4→3D/Space3D; 5x5→4D/Space4D; (N+1)x(N+1)→ND/SpaceND(N)
+- Space.D_in = transform.shape[1]-1; Space.D_out = transform.shape[0]-1; differ only for dimension-changing projections
 
-The `ci.ps1` script accepts switches to skip individual steps:
-```powershell
-./ci.ps1 -SkipTests        # skip pytest
-./ci.ps1 -SkipStyle        # skip ruff
-./ci.ps1 -SkipTypes        # skip ty
-./ci.ps1 -SkipNotebooks    # skip notebook execution
-./ci.ps1 -SkipTests -SkipNotebooks  # combine as needed
-```
-
-For any automation or AI agent execution, always use the `uv run` command format.
-
-## Executing Notebooks
-
-Never try to start or restart a Jupyter kernel interactively — it blocks. Instead, execute notebooks non-interactively via `nbconvert`:
-
-```powershell
-uv run jupyter nbconvert --to notebook --execute --ExecutePreprocessor.timeout=60 --inplace notebooks/my_notebook.ipynb
-```
-
-Always set `--ExecutePreprocessor.timeout` to a reasonable value (e.g. 60 seconds) to avoid hanging forever.
-
-## Python Typing Style
-
-When using type hints, **prefer the built-in collection types** (`list`, `dict`, `tuple`, etc.) over importing from `typing` (e.g., avoid `from typing import List, Dict, Tuple`).
-Use `list[str]`, `dict[str, int]`, etc., for type annotations.
-
-## Writing Style
-
-When denoting matrix or array dimensions, prefer the ASCII `x` over the Unicode multiplication sign: write `2x2` not `2×2`, `3x3` not `3×3`, etc.
-
----
-
-## Project Architecture
-
-### Philosophy
-
-A coordinate is meaningless without its context. Every value in Coordinatus lives
-inside a `Space`, which describes *how that space relates to its parent*. Coordinates
-are never bare numbers — they are always bound to the space in which they are expressed.
-
-Spaces form a **scene-graph hierarchy**. Converting a coordinate from one space to
-another requires both spaces to share a common ancestor. If they do not, the conversion
-is undefined and raises a `ValueError`.
-
-### Package layout
-
-```
-src/coordinatus/
-├── __init__.py          # Public re-exports (Space*, Coordinate, Point, Vector, …)
-├── types.py             # CoordinateKind enum  (POINT | VECTOR)
-├── space.py             # Space hierarchy and factory helpers
-├── coordinate.py        # Coordinate base class + Point, Vector subclasses
-├── visualization.py     # Optional matplotlib helpers (requires extras)
-└── transforms/
-    ├── __init__.py      # Convenience composites: ts1D, trs2D, trks2D
-    ├── translate.py     # translate, translate1D, translate2D, translate3D
-    ├── rotate.py        # rotate2D, rotate3Dx, rotate3Dy, rotate3Dz, rotate3D
-    ├── scale.py         # scale, scale1D, scale2D, scale3D, shear2D
-    └── dimension.py     # reduce_dim, augment_dim, swap_axes, project_* helpers
-```
-
-### Key types and their responsibilities
-
-#### `types.py` — `CoordinateKind`
-
-A two-value enum: `POINT` or `VECTOR`.
-
-- **POINT** (weight = 1): position in space; affected by translation, rotation, and scaling.
-- **VECTOR** (weight = 0): direction/displacement; affected by rotation and scaling only.
-
-This distinction is applied by `transform_coordinate()` when building homogeneous coordinate vectors.
-
-#### `space.py` — `Space` and its subclasses
-
-`Space` wraps a single `(D+1)x(D+1)` homogeneous transform matrix and an optional reference to a parent `Space`.
-
-| Class      | Identity matrix | Typical use                  |
-|------------|-----------------|------------------------------|
-| `Space1D`  | `eye(2)`        | 1D number lines              |
-| `Space2D`  | `eye(3)`        | 2D plane root spaces         |
-| `Space3D`  | `eye(4)`        | 3D world root spaces         |
-| `Space4D`  | `eye(5)`        | 4D / relativistic uses       |
-| `SpaceND`  | `eye(N+1)`      | Arbitrary dimension N        |
-| `Space`    | explicit matrix | Child spaces with transforms |
-
-`Space(transform=None)` raises `ValueError` — always provide an explicit matrix or use a typed subclass.
-
-Key methods:
-
-- `get_root()` — walks up the parent chain; used to check for common ancestors.
-- `compute_absolute_transform()` — multiplies transforms from self up to the root.
-- `compute_relative_transform_to(target)` — raises `ValueError` if the two spaces have different roots; otherwise returns the combined matrix to go from self to target.
-
-`create_space(parent, tx, ty, angle_rad, sx, sy)` is a 2D factory that builds the transform via `trs2D` and returns a `Space`.
-
-#### `coordinate.py` — `Coordinate`, `Point`, `Vector`
-
-`Coordinate` stores:
-- `kind`: `CoordinateKind`
-- `coords`: `np.ndarray` (shape `(D,)` for a single point, `(D, N)` for a batch)
-- `space`: the `Space` in which `coords` are expressed
-
-If `space=None`, an identity space of the appropriate dimension is created automatically.
-
-`Point` and `Vector` are thin subclasses that fix `kind` and omit the `kind` argument from their constructors.
-
-Key methods:
-- `to_absolute()` — applies `compute_absolute_transform()` and returns coords in the root's identity space.
-- `relative_to(target_space)` — calls `compute_relative_transform_to` on the spaces; raises `ValueError` if no common ancestor exists.
-
-`transform_coordinate(transform, coordinates, kind)` is the low-level function; it converts to homogeneous coordinates, applies the matrix, and converts back.
-
-Arithmetic operators (`+`, `-`, `*`, `/`, unary `-`) operate element-wise and require both operands to be in the same space (checked via `Space.__eq__`).
-
-#### `transforms/` — matrix factories
-
-All functions return plain `np.ndarray` homogeneous matrices. They never create or reference a `Space`.
-
-| Function / module    | What it produces                         |
-|----------------------|------------------------------------------|
-| `translate`          | Generic N-D translation                  |
-| `translate1D/2D/3D`  | Shorthand for 1/2/3 dimensions           |
-| `rotate2D`           | Counter-clockwise rotation in the plane  |
-| `rotate3Dx/y/z`      | Rotation around a 3D axis                |
-| `rotate3D`           | Rotation around an arbitrary 3D axis     |
-| `scale`              | Generic N-D scaling                      |
-| `scale1D/2D/3D`      | Shorthand for 1/2/3 dimensions           |
-| `shear2D`            | 2D shear (kx, ky)                        |
-| `swap_axes`          | Axis permutation                         |
-| `reduce_dim`         | Drop a dimension from homogeneous coords |
-| `augment_dim`        | Add a dimension to homogeneous coords    |
-| `project_*`          | Various orthographic projections         |
-
-Composite helpers (in `transforms/__init__.py`):
-
-| Helper    | Composition     | Parameters                               |
-|-----------|-----------------|------------------------------------------|
-| `ts1D`    | `T @ S`         | `tx`, `sx`                               |
-| `trs2D`   | `T @ R @ S`     | `tx`, `ty`, `angle_rad`, `sx`, `sy`      |
-| `trks2D`  | `T @ R @ K @ S` | adds `kx`, `ky` shear on top of `trs2D`  |
-
-#### `visualization.py` — optional matplotlib helpers
-
-Only importable when `matplotlib` is installed (extras: `coordinatus[plotting]`).
-
-- `draw_space_axes(ax, space, reference_space, …)` — draws the origin and axis arrows of `space` as seen from `reference_space`. When `reference_space=None`, coordinates are expressed in absolute space via `to_absolute()`.
-- `draw_points(ax, points, reference_space, …)` — plots a list of `Point` objects with optional connecting lines and labels. Same fallback to `to_absolute()`.
-
-### Dimensionality rules
-
-| Matrix size   | Affine dimension | Corresponding class |
-|---------------|------------------|---------------------|
-| 2x2           | 1D               | `Space1D`           |
-| 3x3           | 2D               | `Space2D`           |
-| 4x4           | 3D               | `Space3D`           |
-| 5x5           | 4D               | `Space4D`           |
-| (N+1)x(N+1)   | ND               | `SpaceND(N)`        |
-
-`Space.D_in` = number of input dimensions = `transform.shape[1] - 1`.
-`Space.D_out` = number of output dimensions = `transform.shape[0] - 1`.
-These differ only for dimension-changing projections.
-
-### Common ancestor rule
-
-`relative_to()` and `compute_relative_transform_to()` compare roots with `is` (identity
-check, not equality). Two independent root spaces — even if both are `Space2D()` — are
-considered unrelated and conversion raises:
-
-```
-ValueError: Cannot convert between unrelated coordinate spaces: the two spaces
-do not share a common ancestor. ...
-```
-
-The fix is always to connect both hierarchies under a single shared root.
-
+## Architecture — Common Ancestor Rule
+- relative_to() and compute_relative_transform_to() compare roots with `is` (identity check, not equality)
+- Two independent Space2D() instances → unrelated → ValueError even if structurally identical
+- Fix: connect both hierarchies under a single shared root
