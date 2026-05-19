@@ -76,13 +76,21 @@ def draw_space_axes(
     """
     _check_matplotlib()
 
-    if space is None and reference_space is None:
-        reference_space = Space2D()
-        space = Space2D(parent=reference_space)
-    elif space is None:
-        space = Space2D(parent=reference_space)
-    elif reference_space is None:
-        reference_space = space.get_root()
+    _ref: Space
+    _space: Space
+    if space is not None and reference_space is not None:
+        _ref, _space = reference_space, space
+    elif space is not None:
+        _ref = space.get_root()
+        _space = space
+    elif reference_space is not None:
+        _ref = reference_space
+        _space = Space2D(parent=_ref)
+    else:
+        _ref = Space2D()
+        _space = Space2D(parent=_ref)
+    reference_space = _ref
+    space = _space
     
     # Get space origin and unit vectors in reference space
     origin = Point(np.array([0, 0]), space=space)
@@ -93,7 +101,7 @@ def draw_space_axes(
         size = np.linalg.norm(direction_xy)
         angle = np.arctan2(direction_xy[1], direction_xy[0])
 
-        tp = TextPath(position_xy, text, size=size)
+        tp = TextPath(position_xy, text, size=float(size))
         transform = (
             mtransforms.Affine2D()
             .rotate_around(position_xy[0], position_xy[1], angle)
@@ -603,6 +611,9 @@ class _HierarchyInteractor:
         # Pan takes priority over hover detection.
         if self._pan_start_display is not None:
             if event.x is not None:
+                assert self._pan_inv_transform is not None
+                assert self._pan_xlim is not None
+                assert self._pan_ylim is not None
                 start_data = self._pan_inv_transform.transform(self._pan_start_display)
                 curr_data = self._pan_inv_transform.transform((event.x, event.y))
                 dx = start_data[0] - curr_data[0]
