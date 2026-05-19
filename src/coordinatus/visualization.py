@@ -647,11 +647,13 @@ class _HierarchyInteractor:
             return
         factor = 0.9 if event.step > 0 else 1.1
         cx, cy = event.xdata, event.ydata
-        xlim = self.ax_axes.get_xlim()
-        ylim = self.ax_axes.get_ylim()
-        self.ax_axes.set_xlim(cx + (xlim[0] - cx) * factor, cx + (xlim[1] - cx) * factor)
-        self.ax_axes.set_ylim(cy + (ylim[0] - cy) * factor, cy + (ylim[1] - cy) * factor)
-        self.fig.canvas.draw_idle()
+        self._view_space.transform = (
+            translate2D(cx, cy)
+            @ scale2D(factor, factor)
+            @ translate2D(-cx, -cy)
+            @ self._view_space.transform
+        )
+        self._redraw()
 
 
 def draw_space_hierarchy(

@@ -712,34 +712,32 @@ class TestHierarchyInteractor:
     def test_scroll_zoom_in(self):
         interactor, fig, root, child = self._make_interactor()
         try:
-            xlim_before = interactor.ax_axes.get_xlim()
+            M_before = interactor._view_space.transform.copy()
             event = Mock()
             event.inaxes = interactor.ax_axes
             event.xdata = 0.0
             event.ydata = 0.0
             event.step = 1  # scroll up = zoom in
             interactor._on_scroll(event)
-            xlim_after = interactor.ax_axes.get_xlim()
-            span_before = xlim_before[1] - xlim_before[0]
-            span_after = xlim_after[1] - xlim_after[0]
-            assert span_after < span_before
+            M_after = interactor._view_space.transform
+            # zoom in: scale factor 0.9 applied → diagonal shrinks
+            assert M_after[0, 0] < M_before[0, 0]
         finally:
             plt.close(fig)
 
     def test_scroll_zoom_out(self):
         interactor, fig, root, child = self._make_interactor()
         try:
-            xlim_before = interactor.ax_axes.get_xlim()
+            M_before = interactor._view_space.transform.copy()
             event = Mock()
             event.inaxes = interactor.ax_axes
             event.xdata = 0.0
             event.ydata = 0.0
             event.step = -1  # scroll down = zoom out
             interactor._on_scroll(event)
-            xlim_after = interactor.ax_axes.get_xlim()
-            span_before = xlim_before[1] - xlim_before[0]
-            span_after = xlim_after[1] - xlim_after[0]
-            assert span_after > span_before
+            M_after = interactor._view_space.transform
+            # zoom out: scale factor 1.1 applied → diagonal grows
+            assert M_after[0, 0] > M_before[0, 0]
         finally:
             plt.close(fig)
 
