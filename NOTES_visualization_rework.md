@@ -19,7 +19,11 @@ parts: 1
 - Step 1 ✅ done May 19 2026; animation code removed, CI passing, 100% test coverage
 - Step 2 ✅ done May 19 2026; `_view_space` added to `__init__`, `_pan_xlim`/`_pan_ylim` removed from `__init__`, 84 tests passing
 - Step 3 ✅ done May 19 2026; `_draw_axes_subplot` takes `view_space`, fixed limits, `_node_at_axes_pos` and `_redraw*` use `_view_space`, graceful skip for unrelated spaces, 84 tests passing
-- Steps 4–8 not started; Steps 7–8 deferred until Steps 1–6 pass tests
+- Step 4 ✅ done May 19 2026; `_start_pan` uses `_pan_M0`; `_on_motion` pan mutates `_view_space.transform` via `translate2D(dx,dy) @ _pan_M0`; `_on_release` clears `_pan_M0`; tests updated; 84 tests passing
+- Step 5 ✅ done May 19 2026; `_on_scroll` mutates `_view_space.transform` via `translate2D(cx,cy) @ scale2D(f,f) @ translate2D(-cx,-cy) @ M`; tests updated to check diagonal; 84 tests passing
+- Step 6 ✅ done May 19 2026; `_select_node` guards on `new_ref is _view_space.parent`; resets `_view_space = Space(eye(3), parent=new_ref)`; test extended to check `_view_space.parent` and identity transform; 84 tests passing
+- Step 7 ✅ done May 20 2026; `draw_grid` rewritten — adaptive step (`10^ceil(log10(range/8))`), viewport corners batch-converted via `Point.relative_to`, tick labels via `draw_text` (x-ticks angle=0, y-ticks angle=π/2), `except ValueError` guard for unrelated spaces; 518 tests passing, 100% coverage
+- Steps 7b–8 deferred (future)
 
 ## Current Architecture (as of May 19 2026)
 - `draw_space_hierarchy(spaces, labels, title)`: two subplots — `ax_graph` (networkx directed graph left), `ax_axes` (coordinate frames via `draw_space_axes` right)
@@ -98,6 +102,41 @@ Since Step 3 fixes `reference_space = view_space` inside `draw_space_axes`, the 
 
 **Note on decimation / sub-grid**: the `10^floor(log10(…/8))` formula handles both zoom-out (coarser grid, e.g. step = 100) and zoom-in (finer grid, e.g. step = 0.01) automatically; no separate decimation or sub-grid logic needed.
 
+### Step 7b — Manual blitting for pan/zoom (NEXT PERF STEP, before Step 8)
+**Problem**: `_redraw_axes_only()` calls `ax.clear()` + recreates all artists from scratch on every scroll tick or pan frame → still slow because it rasterises the entire axes every frame.
+
+**Goal**: cache the static background (axes spines, grid, graph subplot) as a pixel buffer; on pan/zoom only repaint the coordinate-frame artists on top.
+
+**Approach — manual blitting** (NOT `FuncAnimation`; that is for timer-driven playback, not event-driven interaction):
+1. `__init__`: add `self._axes_bg = None` (pixel buffer).
+2. Add `_cache_axes_bg(self)`: `self.fig.canvas.draw()` (full paint); `self._axes_bg = self.fig.canvas.copy_from_bbox(self.ax_axes.bbox)`.
+3. Call `_cache_axes_bg()` at the end of `_redraw()` (after the full draw that includes grid/spines/labels).
+4. Add `_blit_axes(self)`:
+   ```python
+   def _blit_axes(self) -> None:
+       if self._axes_bg is None:
+           self._redraw()
+           return
+       self.fig.canvas.restore_region(self._axes_bg)
+       for artist in self._animated_artists:
+           self.ax_axes.draw_artist(artist)
+       self.fig.canvas.blit(self.ax_axes.bbox)
+   ```
+5. `_on_scroll` and `_on_motion` (pan) call `_blit_axes()` instead of `_redraw_axes_only()`.
+6. Invalidate cache on figure resize: connect `resize_event` → `self._axes_bg = None`.
+
+**Required refactor of `draw_space_axes` and artist tracking**:
+- Current: `draw_space_axes` draws into axes and creates new `Line2D`/`PathPatch` objects each call.
+- Required: all coordinate-frame artists must be pre-created once, marked `animated=True`, and stored in `self._animated_artists`.  On pan/zoom, their underlying data (line endpoints, arrow positions) is updated in-place via `set_xdata`/`set_ydata`/`set_transform` — no `ax.clear()`.
+- `_draw_axes_subplot` becomes a two-phase API: `_init_axes_artists()` (create once, `animated=True`) and `_update_axes_artists()` (update data, no clear).
+- On `_redraw()` (selection change): destroy old artists, recreate, re-cache background.
+- **The static background** (grid, spines, tick labels from Step 7) must NOT be animated; only the coordinate-frame arrows/labels are animated.
+
+**Key invariant**: `_axes_bg` is captured AFTER `fig.canvas.draw()` which includes the static grid/spines but BEFORE any animated artists are drawn. Animated artists are rendered on top via `draw_artist` + `blit`, not via `draw_idle`.
+
+**Validation**: scroll should feel instantaneous; CPU usage per scroll tick drops to near-zero between frames.
+
 ### Step 8 — Re-add animation (FUTURE, after Steps 1–7 pass tests)
-- `_select_node`: compute `M_start` = old view expressed in new parent's frame; tween `_view_space.transform` from `M_start` → `np.eye(3)` using `_interpolate_trks2d(M_start, np.eye(3), t)` per frame; call `_redraw()` each frame; use blitting (capture static bg once, swap only space artists)
-- Re-add `_decompose_trks2d`, `_interpolate_trks2d`, `trs2D`/`trks2D` imports at this point (functions were correct; only animation wiring was messy)
+- Notes: functions `interpolate_trks2d` and `decompose_trks2d` have been implemented in file `.\src\coordinatus\transforms\__init__.py`. They must be used for this step. 
+- `_select_node`: compute `M_start` = old view expressed in new parent's frame; tween `_view_space.transform` from `M_start` → `np.eye(3)` using `interpolate_trks2d(M_start, np.eye(3), t)` per frame; call `_redraw()` each frame; use blitting (capture static bg once, swap only space artists)
+- Re-add `decompose_trks2d`, `interpolate_trks2d`, `trs2D`/`trks2D` imports at this point (functions were correct; only animation wiring was messy)
