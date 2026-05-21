@@ -453,7 +453,7 @@ to resolve parent references (see section 5.2).
   `GraphScene`, `PlotScene`, `Scene`.
 - Add unit tests (`tests/coordinatus/viz/test_scene.py`) — construction only, no Qt.
 
-### Step 2 — `viz/model.py`: VisualizerModel
+### Step 2 — `viz/model.py`: VisualizerModel ✅ DONE
 - Implement `VisualizerModel` with all domain + interaction fields per section 5.2
   (including `view_space: Space2D`; **no** `x_range`/`y_range`/`display_space_id`).
 - Implement `apply_message(msg)` for all message types:
