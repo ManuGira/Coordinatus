@@ -446,7 +446,7 @@ to resolve parent references (see section 5.2).
 
 ## 7. Implementation Steps
 
-### Step 1 — `viz/scene.py`: Scene dataclasses
+### Step 1 — `viz/scene.py`: Scene dataclasses ✅ DONE
 - Create `src/coordinatus/viz/__init__.py` and `scene.py`.
 - Implement all Spec dataclasses exactly as in section 5.1:
   `CurveSpec`, `FilledPolygonSpec`, `ScatterSpec`, `LabelSpec`,
