@@ -5,7 +5,6 @@ No Qt or pyqtgraph imports. All coordinate conversions use the coordinatus API.
 
 from __future__ import annotations
 
-from collections import deque
 from math import atan2, degrees
 from typing import Any
 
@@ -49,9 +48,6 @@ _PALETTE = [
     "#fabed4",
 ]
 
-_MAX_SCALAR_BUFFER = 500
-
-
 # --------------------------------------------------------------------------- #
 # VisualizerModel
 # --------------------------------------------------------------------------- #
@@ -72,7 +68,6 @@ class VisualizerModel:
         self.spaces: dict[str, Space] = {}
         self._space_parent_ids: dict[str, str | None] = {}  # space_id → parent_id
         self.point_channels: dict[str, list[Point]] = {}
-        self.scalar_channels: dict[str, deque[float]] = {}
 
         # Interaction / camera state
         self.view_space: Space = Space(transform=np.eye(3), parent=self._implicit_root)
@@ -94,8 +89,7 @@ class VisualizerModel:
 
         A state-update message carries the **complete** current set of spaces
         and/or points under the ``"spaces"`` and ``"points"`` keys; these replace
-        all previously stored data.  Scalar rolling-buffers and the
-        ``"set_display_space"`` command are still handled via separate keys.
+        all previously stored data.
 
         Message shapes
         --------------
@@ -103,10 +97,6 @@ class VisualizerModel:
 
             {"spaces": [{"id": ..., "parent_id": ..., "transform": ...}, ...],
              "points": [{"channel": ..., "space_id": ..., "coords": [...]}, ...]}
-
-        Scalar rolling-buffer (accumulated, not replaced)::
-
-            {"channel": "rpm", "value": 3000.0}
 
         Display-space override::
 
@@ -135,13 +125,6 @@ class VisualizerModel:
             for pts_msg in msg["points"]:
                 self._apply_points(pts_msg)
 
-        if "channel" in msg and "value" in msg:
-            # Plain scalar rolling-buffer: {"channel": "rpm", "value": 3000.0}
-            channel_id = str(msg["channel"])
-            if channel_id not in self.scalar_channels:
-                self.scalar_channels[channel_id] = deque(maxlen=_MAX_SCALAR_BUFFER)
-            self.scalar_channels[channel_id].append(float(msg["value"]))
-
         if msg.get("type") == "set_display_space":
             self.select_space(msg.get("space_id"))
 
@@ -168,21 +151,13 @@ class VisualizerModel:
         """Update hover / mouse state. Does NOT touch view_space.
 
         Accepted keys: ``hovered_node_id``, ``mouse_x``, ``mouse_y``.
-        ``mouse_x`` and ``mouse_y`` are also appended to their scalar channels
-        so they appear as rolling curves on the plot panel.
         """
         if "hovered_node_id" in kwargs:
             self.hovered_node_id = kwargs["hovered_node_id"]
         if "mouse_x" in kwargs:
             self.mouse_x = float(kwargs["mouse_x"])
-            if "mouse_x" not in self.scalar_channels:
-                self.scalar_channels["mouse_x"] = deque(maxlen=_MAX_SCALAR_BUFFER)
-            self.scalar_channels["mouse_x"].append(self.mouse_x)
         if "mouse_y" in kwargs:
             self.mouse_y = float(kwargs["mouse_y"])
-            if "mouse_y" not in self.scalar_channels:
-                self.scalar_channels["mouse_y"] = deque(maxlen=_MAX_SCALAR_BUFFER)
-            self.scalar_channels["mouse_y"].append(self.mouse_y)
 
     def pan(self, dx: float, dy: float) -> None:
         """Translate view_space by (dx, dy) in current view-space units.
@@ -395,45 +370,7 @@ class VisualizerModel:
         return GraphScene(curves=curves, arrows=arrows, scatter=scatter, labels=labels)
 
     def _build_plot_scene(self) -> PlotScene:
-        scatter_list: list[ScatterSpec] = []
-        curve_list: list[CurveSpec] = []
-
-        # 5.6.3 — Point channels → view-space scatter (right panel)
-        for channel_id, points in self.point_channels.items():
-            positions: list[list[float]] = []
-            for pt in points:
-                try:
-                    pt_view = pt.relative_to(self.view_space)
-                    positions.append(
-                        [float(pt_view.coords[0]), float(pt_view.coords[1])]
-                    )
-                except ValueError:
-                    continue  # no common ancestor — silently skip
-
-            if positions:
-                color = self._get_channel_color(channel_id)
-                scatter_list.append(
-                    ScatterSpec(
-                        positions=np.array(positions),
-                        colors=[color] * len(positions),
-                        sizes=[5.0] * len(positions),
-                        ids=[f"{channel_id}:{i}" for i in range(len(positions))],
-                    )
-                )
-
-        # 5.6.4 — Scalar channels → rolling CurveSpec (right panel)
-        for channel_id, buf in self.scalar_channels.items():
-            if not buf:
-                continue
-            x = np.arange(len(buf), dtype=float)
-            y = np.fromiter(buf, dtype=float, count=len(buf))
-            curve_list.append(
-                CurveSpec(
-                    points=np.column_stack([x, y]),
-                    color=self._get_channel_color(channel_id),
-                    width=1.5,
-                    name=channel_id,
-                )
-            )
-
-        return PlotScene(curves=curve_list, scatter=scatter_list)
+        # Todo: from the list of spaces and points, 
+        # build curves and polygon to draw arrows of each spaces unit axes, relative to the view space. 
+        # Then generate scatters from points, also rendered relative to the view_spaces
+        return PlotScene()

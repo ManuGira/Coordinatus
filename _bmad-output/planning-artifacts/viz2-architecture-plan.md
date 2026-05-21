@@ -154,7 +154,7 @@ class GraphScene:
 
 @dataclass
 class PlotScene:
-    curves:  list[CurveSpec]           # rolling scalar channels (right panel)
+    curves:  list[CurveSpec]           # Litst of coordinates joined by lines (right panel)
     polygons: list[FilledPolygonSpec]  # filled shapes (non-directional)
     scatter: list[ScatterSpec]         # point annotations on the right panel
     labels:  list[LabelSpec]           # text annotations on the right panel
@@ -173,7 +173,6 @@ class Scene:
 ```python
 spaces:          dict[str, Space]           # id → coordinatus Space (scene graph)
 point_channels:  dict[str, list[Point]]     # channel_id → list of coordinatus Points
-scalar_channels: dict[str, deque[float]]    # channel_id → rolling float buffer
 ```
 
 > **Space reconstruction:** `apply_message` for `"space"` messages looks up
@@ -349,9 +348,11 @@ class Presenter(QObject):
 — this keeps the render loop simple.  The cost of `to_scene()` on a tick where only
 `on_mouse_moved` fired is negligible.
 
-### 5.5 `server.py` — unchanged logic, new file
+### 5.5 `server.py` — agnostic TCP listener
 
-Move `SocketServer` from `visualization2.py`. Its `_DataBridge` is replaced by a plain `queue.Queue[dict]` — the server puts raw decoded dicts; the Presenter drains them.
+Move `SocketServer` from `visualization2.py`. Its `_DataBridge` (Qt `QObject` with signals) is replaced by a plain `queue.Queue[dict]`.
+
+The server has **no knowledge of message content**: it reads newline-delimited bytes, decodes each line as JSON, and puts the resulting `dict` into the queue unchanged. All message interpretation lives in `Model.apply_message()`. This means the server never needs to change when the protocol evolves.
 
 ### 5.6 Scene Generation Logic — `to_scene()` in detail
 
@@ -396,51 +397,60 @@ For each `channel_id` in `model.point_channels`:
 - Skip points that raise `ValueError` (no shared ancestor with `view_space`).
 - Append to `PlotScene.scatter` (right panel), **not** `GraphScene.scatter`.
 
-#### 5.6.4 Scalar channels → rolling CurveSpec (right panel)
-
-```python
-for ch_id, buf in model.scalar_channels.items():
-    x = np.arange(len(buf), dtype=float)
-    y = np.fromiter(buf, dtype=float)
-    curves.append(CurveSpec(
-        points=np.column_stack([x, y]),
-        color=palette[ch_id],
-        width=1.5,
-        name=ch_id,
-    ))
-```
-
-`mouse_x` and `mouse_y` are stored into `scalar_channels` by the Presenter via
-`set_interaction()`, so they appear automatically as rolling channels alongside
-socket-delivered scalars.
-
 ---
 
-## 6. Socket Protocol Extension
+## 6. Socket Protocol
 
-All messages remain newline-terminated JSON. New types for Coordinatus objects.
-Spaces may be declared in **any order** — the receiver uses multi-pass reconstruction
-to resolve parent references (see section 5.2).
+All messages are newline-terminated JSON objects (one object per line). The server
+is a pure pass-through — it never inspects message keys. All decoding logic lives
+in `Model.apply_message()`.
+
+### 6.1 Compound state-update message
+
+The primary message type carries the **complete current state** of the scene in
+one shot. Both `spaces` and `points` are optional; omitting a key leaves the
+corresponding domain data unchanged.
 
 ```jsonc
-// Declare a Space (homogeneous transform matrix, optional parent)
-{"type": "space", "id": "world", "parent_id": null,
- "transform": [[1,0,0],[0,1,0],[0,0,1]]}
+{
+  // Optional — replaces ALL previously stored spaces.
+  // Spaces may be listed in any order; the Model resolves parent references
+  // with a multi-pass pending buffer (see section 5.2).
+  "spaces": [
+    {"id": "world",  "parent_id": null,
+     "transform": [[1,0,0],[0,1,0],[0,0,1]]},
+    {"id": "sensor", "parent_id": "world",
+     "transform": [[0.707,-0.707,1],[0.707,0.707,0],[0,0,1]]}
+  ],
 
-// Declare a child Space (may appear before or after its parent in the stream)
-{"type": "space", "id": "sensor", "parent_id": "world",
- "transform": [[0.707,-0.707,1],[0.707,0.707,0],[0,0,1]]}
+  // Optional — replaces ALL previously stored point channels.
+  // Each entry is one channel: a named list of 2-D coordinates in a given space.
+  "points": [
+    {"channel": "lidar",   "space_id": "sensor", "coords": [[1.0,2.0],[3.0,4.0]]},
+    {"channel": "targets", "space_id": "world",  "coords": [[0.5,0.5]]}
+  ]
+}
+```
 
-// Send a batch of Points in a named channel
-{"type": "points", "channel": "lidar", "space_id": "sensor",
- "coords": [[1.0, 2.0], [3.0, 4.0]]}
+Transform matrices are **row-major** (NumPy default): `np.array(entry["transform"])`
+gives the correct `(D+1) × (D+1)` homogeneous matrix directly.
 
-// Send a scalar rolling-buffer value (existing, unchanged)
-{"channel": "rpm", "value": 3000.0}
+### 6.2 Display-space override message
 
-// Override the display (reference) space for projection
+Selects which Space is used as the view origin for the plot panel.
+
+```jsonc
 {"type": "set_display_space", "space_id": "world"}
 ```
+
+### 6.3 Design notes
+
+| Property | Detail |
+|---|---|
+| State model | `spaces` and `points` are **replace-all** (last write wins per tick). |
+| Declaration order | Spaces inside a compound message may appear in any order; the Model resolves parent links in multiple passes. |
+| Missing parent | If a Space's `parent_id` cannot be resolved after all passes, a `ValueError` is raised (cycle or dangling reference). |
+| Projection failure | Points whose Space shares no ancestor with `view_space` are silently dropped from the plot panel (still visible on the graph panel). |
 
 ---
 
@@ -456,17 +466,15 @@ to resolve parent references (see section 5.2).
 ### Step 2 — `viz/model.py`: VisualizerModel ✅ DONE
 - Implement `VisualizerModel` with all domain + interaction fields per section 5.2
   (including `view_space: Space2D`; **no** `x_range`/`y_range`/`display_space_id`).
-- Implement `apply_message(msg)` for all message types:
-  `space` (with multi-pass pending buffer per section 5.2), `points`, plain scalar.
+- Implement `apply_message(msg)` for both message types: compound state update (`spaces`, `points`) and display-space override.
 - Implement `pan(dx, dy)` and `zoom(factor, cx, cy)` per section 5.2 mechanics.
 - Implement `to_scene()` following the generation logic in section 5.6:
   - Space nodes + hierarchy edges with arrows → `GraphScene` using `to_absolute()` coords (5.6.1–2).
   - Point channels → `PlotScene.scatter` entries via `relative_to(view_space)` (5.6.3).
-  - Scalar channels (incl. `mouse_x`/`mouse_y`) → `PlotScene.curves` (5.6.4).
   - Hover/selection colors baked in.
 - Add unit tests (`tests/coordinatus/viz/test_model.py`) — no Qt, no pyqtgraph.
 
-### Step 3 — `viz/server.py`: SocketServer refactor
+### Step 3 — `viz/server.py`: SocketServer refactor ✅ DONE
 - Move `SocketServer` from `visualization2.py`.
 - Replace `_DataBridge` (QObject with Qt signals) with a plain `queue.Queue[dict]`.
 - Server now puts raw decoded `dict` into the queue; no Qt dependency.
@@ -512,3 +520,4 @@ to resolve parent references (see section 5.2).
 | Q2 | Point projection failure (no common ancestor) | **Silently drop** — the disconnected Space is visible on the graph panel; the user will understand why points are absent. |
 | Q3 | Topology diff strategy | **Full set comparison** for now (`set(edges) != set(prev_edges)`). Introduce a `topology_version` counter only if performance becomes a problem. |
 | Q4 | Auto-fit when new data arrives | **No auto-fit after first render.** On the very first render the **graph panel** ViewBox does a one-shot `enableAutoRange()` to show all nodes, then its native ViewBox manages all subsequent pan/zoom. The **plot panel** ViewBox is always mouse-disabled; all pan/zoom on the right panel is driven exclusively by `model.pan()`/`model.zoom()` triggered by custom mouse events. |
+| Q5 | Message granularity | **Compound messages** — one JSON object carries `"spaces": [...]` and/or `"points": [...]` as complete state snapshots (replace semantics). The server is a pure pass-through; it never inspects keys. |

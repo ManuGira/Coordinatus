@@ -52,7 +52,6 @@ class TestInit:
         m = VisualizerModel()
         assert m.spaces == {}
         assert m.point_channels == {}
-        assert m.scalar_channels == {}
 
     def test_view_space_parent_is_implicit_root(self):
         m = VisualizerModel()
@@ -197,32 +196,6 @@ class TestApplyMessagePoints:
 
 
 # --------------------------------------------------------------------------- #
-# apply_message — scalar
-# --------------------------------------------------------------------------- #
-
-
-class TestApplyMessageScalar:
-    def test_scalar_appended(self):
-        m = VisualizerModel()
-        m.apply_message({"channel": "rpm", "value": 3000.0})
-        assert "rpm" in m.scalar_channels
-        assert list(m.scalar_channels["rpm"]) == [3000.0]
-
-    def test_scalar_multiple_values(self):
-        m = VisualizerModel()
-        for v in [1.0, 2.0, 3.0]:
-            m.apply_message({"channel": "temp", "value": v})
-        assert list(m.scalar_channels["temp"]) == [1.0, 2.0, 3.0]
-
-    def test_scalar_buffer_maxlen(self):
-        from coordinatus.viz.model import _MAX_SCALAR_BUFFER
-        m = VisualizerModel()
-        for i in range(_MAX_SCALAR_BUFFER + 10):
-            m.apply_message({"channel": "x", "value": float(i)})
-        assert len(m.scalar_channels["x"]) == _MAX_SCALAR_BUFFER
-
-
-# --------------------------------------------------------------------------- #
 # apply_message — set_display_space
 # --------------------------------------------------------------------------- #
 
@@ -316,20 +289,6 @@ class TestSetInteraction:
         m.set_interaction(mouse_x=0.5, mouse_y=-0.3)
         assert m.mouse_x == pytest.approx(0.5)
         assert m.mouse_y == pytest.approx(-0.3)
-
-    def test_mouse_x_appended_to_scalar_channel(self):
-        m = VisualizerModel()
-        m.set_interaction(mouse_x=0.1)
-        m.set_interaction(mouse_x=0.2)
-        assert "mouse_x" in m.scalar_channels
-        vals = list(m.scalar_channels["mouse_x"])
-        assert vals == pytest.approx([0.1, 0.2])
-
-    def test_mouse_y_appended_to_scalar_channel(self):
-        m = VisualizerModel()
-        m.set_interaction(mouse_y=-0.5)
-        assert "mouse_y" in m.scalar_channels
-        assert list(m.scalar_channels["mouse_y"]) == pytest.approx([-0.5])
 
     def test_does_not_touch_view_space(self):
         m = VisualizerModel()
@@ -553,95 +512,6 @@ class TestToSceneGraph:
         scene = m.to_scene()
         assert len(scene.graph.scatter) == 1
         assert set(scene.graph.scatter[0].ids) == {"a", "b"}
-
-
-# --------------------------------------------------------------------------- #
-# to_scene — plot panel (point channels + scalar channels)
-# --------------------------------------------------------------------------- #
-
-
-class TestToScenePlot:
-    def test_point_channel_in_scatter(self):
-        m = VisualizerModel()
-        m.apply_message(_state(
-            spaces=[_space_def("world")],
-            points=[_pts("lidar", "world", [[1.0, 2.0], [3.0, 4.0]])],
-        ))
-        scene = m.to_scene()
-        assert len(scene.plot.scatter) == 1
-        sc = scene.plot.scatter[0]
-        assert sc.positions.shape == (2, 2)
-
-    def test_point_in_view_space_coords(self):
-        """Points are expressed relative to view_space, not absolute."""
-        m = VisualizerModel()
-        m.apply_message(_state(
-            spaces=[_space_def("world", tx=5.0, ty=0.0)],
-            points=[_pts("ch", "world", [[0.0, 0.0]])],
-        ))
-        scene = m.to_scene()
-        sc = scene.plot.scatter[0]
-        # world origin is at (5, 0) in absolute → (5, 0) in view (identity view)
-        assert np.allclose(sc.positions[0], [5.0, 0.0])
-
-    def test_point_from_unrelated_space_skipped(self):
-        """Point whose space has no common ancestor with view_space is silently skipped."""
-        m = VisualizerModel()
-        orphan_space = Space(transform=np.eye(3))  # parent=None → independent root
-        pt = Point([1.0, 2.0], space=orphan_space)
-        m.point_channels["orphan"] = [pt]
-        scene = m.to_scene()
-        assert scene.plot.scatter == []
-
-    def test_scalar_channel_curve(self):
-        m = VisualizerModel()
-        for v in [1.0, 2.0, 3.0]:
-            m.apply_message({"channel": "rpm", "value": v})
-        scene = m.to_scene()
-        assert len(scene.plot.curves) == 1
-        curve = scene.plot.curves[0]
-        assert curve.name == "rpm"
-        assert np.allclose(curve.points[:, 1], [1.0, 2.0, 3.0])
-        assert np.allclose(curve.points[:, 0], [0.0, 1.0, 2.0])
-
-    def test_mouse_scalars_appear_as_curves(self):
-        m = VisualizerModel()
-        m.set_interaction(mouse_x=0.1, mouse_y=0.2)
-        m.set_interaction(mouse_x=0.3, mouse_y=0.4)
-        scene = m.to_scene()
-        curve_names = {c.name for c in scene.plot.curves}
-        assert "mouse_x" in curve_names
-        assert "mouse_y" in curve_names
-
-    def test_empty_scalar_channel_not_plotted(self):
-        from collections import deque
-        m = VisualizerModel()
-        m.scalar_channels["empty"] = deque(maxlen=500)
-        scene = m.to_scene()
-        names = [c.name for c in scene.plot.curves]
-        assert "empty" not in names
-
-    def test_point_channel_ids_have_prefix(self):
-        m = VisualizerModel()
-        m.apply_message(_state(
-            spaces=[_space_def("world")],
-            points=[_pts("ch", "world", [[0.0, 0.0], [1.0, 0.0]])],
-        ))
-        scene = m.to_scene()
-        sc = scene.plot.scatter[0]
-        assert sc.ids == ["ch:0", "ch:1"]
-
-    def test_two_point_channels_give_two_scatter_specs(self):
-        m = VisualizerModel()
-        m.apply_message(_state(
-            spaces=[_space_def("world")],
-            points=[
-                _pts("a", "world", [[0.0, 0.0]]),
-                _pts("b", "world", [[1.0, 0.0]]),
-            ],
-        ))
-        scene = m.to_scene()
-        assert len(scene.plot.scatter) == 2
 
 
 # --------------------------------------------------------------------------- #
