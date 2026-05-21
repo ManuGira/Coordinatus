@@ -1,7 +1,6 @@
 # Python-generated files
 __pycache__/
 *.py[oc]
-build/
 dist/
 wheels/
 *.egg-info
@@ -11,3 +10,4 @@ wheels/
 .vscode/settings.json
 NOTES.md
 .coverage
+_bmad/config.user.toml
