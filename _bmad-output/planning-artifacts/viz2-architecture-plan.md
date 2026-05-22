@@ -479,7 +479,7 @@ Selects which Space is used as the view origin for the plot panel.
 - Replace `_DataBridge` (QObject with Qt signals) with a plain `queue.Queue[dict]`.
 - Server now puts raw decoded `dict` into the queue; no Qt dependency.
 
-### Step 4 — `viz/view.py`: VisualizerView
+### Step 4 — `viz/view.py`: VisualizerView ✅ DONE
 - Define `ViewEventHandler` Protocol per section 5.3
   (`on_node_hovered`, `on_node_clicked`, `on_plot_pan`, `on_plot_zoom`, `on_mouse_moved`).
 - Refactor current `MainWindow`, `DirectedGraphPanel`, `LivePlotPanel` into `VisualizerView`.

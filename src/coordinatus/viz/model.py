@@ -17,6 +17,7 @@ from coordinatus.transforms.scale import scale2D
 from coordinatus.viz.scene import (
     ArrowSpec,
     CurveSpec,
+    FilledPolygonSpec,
     GraphScene,
     LabelSpec,
     PlotScene,
@@ -373,4 +374,20 @@ class VisualizerModel:
         # Todo: from the list of spaces and points, 
         # build curves and polygon to draw arrows of each spaces unit axes, relative to the view space. 
         # Then generate scatters from points, also rendered relative to the view_spaces
-        return PlotScene()
+
+        curves = [
+            CurveSpec(
+                points=np.array([[0.0, 0.0], [1.0, 1.0]]),
+                color="#ff0000",
+                width=1.0,
+                name="example curve",
+            )
+        ]
+        polygons = [
+            FilledPolygonSpec(
+                vertices=np.array([[0.0, 0.0], [1.0, 0.0], [0.5, 1.0]]),
+                color="#00ff00",
+                border_color="#000000",
+            )
+        ]
+        return PlotScene(curves=curves, polygons=polygons)
