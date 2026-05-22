@@ -499,7 +499,7 @@ Selects which Space is used as the view origin for the plot panel.
 - `_on_tick()` drains queue (max 100 messages per tick to avoid frame drops), calls model, calls view.
 - Implement all `ViewEventHandler` methods.
 
-### Step 6 — Wire in `visualization2.py`
+### Step 6 — Wire in `visualization2.py` ✅ DONE
 - Keep sys.path fix at top.
 - Import from `viz/` subpackage.
 - `main()` creates `queue.Queue`, `SocketServer`, `VisualizerModel`, `VisualizerView`, `Presenter`.
