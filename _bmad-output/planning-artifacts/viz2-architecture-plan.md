@@ -493,7 +493,7 @@ Selects which Space is used as the view origin for the plot panel.
   `self._plot_vb.setMouseEnabled(x=False, y=False)`.
 - Add custom mouse event handlers on the **plot** panel for pan (left-button drag → `on_plot_pan`) and zoom (scroll wheel → `on_plot_zoom`).
 
-### Step 5 — `viz/presenter.py`: Presenter
+### Step 5 — `viz/presenter.py`: Presenter ✅ DONE
 - Implement `Presenter(QObject)` as described.
 - `start()` registers self on view and starts QTimer.
 - `_on_tick()` drains queue (max 100 messages per tick to avoid frame drops), calls model, calls view.
