@@ -434,13 +434,16 @@ class TestToSceneGraph:
         assert "world" in sc.ids
 
     def test_space_origin_position(self):
+        # Positions are now determined by networkx layout, not world coords.
+        # Verify the node has a finite 2-D position.
         m = VisualizerModel()
         m.apply_message(_state([_space_def("world", tx=3.0, ty=4.0)]))
         scene = m.to_scene()
         sc = scene.graph.scatter[0]
         idx = sc.ids.index("world")
         pos = sc.positions[idx]
-        assert np.allclose(pos, [3.0, 4.0])
+        assert pos.shape == (2,)
+        assert np.all(np.isfinite(pos))
 
     def test_label_created_per_space(self):
         m = VisualizerModel()
@@ -451,6 +454,7 @@ class TestToSceneGraph:
         assert labels[0].text == "world"
 
     def test_hierarchy_edge_curve(self):
+        # Curve endpoints come from networkx layout; just verify topology.
         m = VisualizerModel()
         m.apply_message(_state([
             _space_def("world"),
@@ -459,10 +463,16 @@ class TestToSceneGraph:
         scene = m.to_scene()
         assert len(scene.graph.curves) == 1
         curve = scene.graph.curves[0]
-        assert np.allclose(curve.points[0], [0.0, 0.0])
-        assert np.allclose(curve.points[1], [2.0, 0.0])
+        assert curve.points.shape == (2, 2)
+        assert np.all(np.isfinite(curve.points))
+        # Endpoints must match the node positions in the scatter.
+        sc = scene.graph.scatter[0]
+        world_pos = sc.positions[sc.ids.index("world")]
+        sensor_pos = sc.positions[sc.ids.index("sensor")]
+        assert np.allclose(curve.points[0], world_pos) or np.allclose(curve.points[0], sensor_pos)
 
     def test_hierarchy_arrow_at_70_percent(self):
+        # Arrow must be at 70 % along the edge between layout-computed positions.
         m = VisualizerModel()
         m.apply_message(_state([
             _space_def("world"),
@@ -471,8 +481,12 @@ class TestToSceneGraph:
         scene = m.to_scene()
         assert len(scene.graph.arrows) == 1
         arrow = scene.graph.arrows[0]
-        assert arrow.x == pytest.approx(7.0)
-        assert arrow.y == pytest.approx(0.0)
+        sc = scene.graph.scatter[0]
+        p0 = sc.positions[sc.ids.index("world")]
+        p1 = sc.positions[sc.ids.index("sensor")]
+        expected = p0 + 0.70 * (p1 - p0)
+        assert arrow.x == pytest.approx(float(expected[0]))
+        assert arrow.y == pytest.approx(float(expected[1]))
 
     def test_no_edge_for_root_space(self):
         m = VisualizerModel()
@@ -528,6 +542,7 @@ class TestLabelRotation:
         assert label.rotation == pytest.approx(0.0)
 
     def test_label_rotation_for_rotated_space(self):
+        # Label rotation is always 0 in the networkx layout (no world-axis info).
         from coordinatus.transforms import rotate2D
         m = VisualizerModel()
         angle = math.pi / 2  # 90 degrees CCW
@@ -536,4 +551,4 @@ class TestLabelRotation:
         })
         scene = m.to_scene()
         label = scene.graph.labels[0]
-        assert label.rotation == pytest.approx(90.0, abs=1e-6)
+        assert label.rotation == pytest.approx(0.0)

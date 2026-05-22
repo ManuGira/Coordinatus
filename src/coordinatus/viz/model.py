@@ -8,6 +8,7 @@ from __future__ import annotations
 from math import atan2, degrees
 from typing import Any
 
+import networkx as nx
 import numpy as np
 
 from coordinatus.coordinate import Point
@@ -268,13 +269,21 @@ class VisualizerModel:
         scatter_ids: list[str] = []
         labels: list[LabelSpec] = []
 
-        # 5.6.1 — Space origins → graph nodes (absolute world coords)
-        for space_id, space in self.spaces.items():
-            try:
-                origin_abs = Point([0.0, 0.0], space=space).to_absolute()
-                xy = origin_abs.coords  # shape (2,)
-            except Exception:  # noqa: BLE001
+        # Build directed graph and compute layout positions via networkx.
+        G: nx.DiGraph = nx.DiGraph()
+        for space_id in self.spaces:
+            G.add_node(space_id)
+        for space_id, parent_id in self._space_parent_ids.items():
+            if parent_id in self.spaces and space_id in self.spaces:
+                G.add_edge(parent_id, space_id)
+        
+        pos: dict[str, tuple[float, float]] = nx.spring_layout(G, seed=42)
+
+        # 5.6.1 — Space origins → graph nodes (layout coords)
+        for space_id in self.spaces:
+            if space_id not in pos:
                 continue
+            xy = pos[space_id]
 
             if space_id == self.selected_node_id:
                 color = _COLOR_NODE_SELECTED
@@ -288,26 +297,13 @@ class VisualizerModel:
             scatter_sizes.append(_NODE_SIZE_DEFAULT)
             scatter_ids.append(space_id)
 
-            # Label aligned with the space's local x-axis
-            try:
-                x_end_abs = Point([1.0, 0.0], space=space).to_absolute()
-                x_end = x_end_abs.coords
-                rotation = degrees(
-                    atan2(
-                        float(x_end[1]) - float(xy[1]),
-                        float(x_end[0]) - float(xy[0]),
-                    )
-                )
-            except Exception:  # noqa: BLE001
-                rotation = 0.0
-
             labels.append(
                 LabelSpec(
                     x=float(xy[0]),
                     y=float(xy[1]),
                     text=space_id,
                     color=color,
-                    rotation=rotation,
+                    rotation=0.0,
                     anchor=(0.5, -0.3),
                 )
             )
@@ -324,23 +320,15 @@ class VisualizerModel:
             )
 
         # 5.6.2 — Hierarchy edges (parent→child lines + directed arrowheads)
-        for space_id, space in self.spaces.items():
+        for space_id in self.spaces:
             parent_id = self._space_parent_ids.get(space_id)
             if parent_id is None or parent_id not in self.spaces:
                 continue
-
-            try:
-                p0_abs = (
-                    Point([0.0, 0.0], space=self.spaces[parent_id])
-                    .to_absolute()
-                    .coords
-                )
-                p1_abs = Point([0.0, 0.0], space=space).to_absolute().coords
-            except Exception:  # noqa: BLE001
+            if parent_id not in pos or space_id not in pos:
                 continue
 
-            p0 = np.array([float(p0_abs[0]), float(p0_abs[1])])
-            p1 = np.array([float(p1_abs[0]), float(p1_abs[1])])
+            p0 = np.array([float(pos[parent_id][0]), float(pos[parent_id][1])])
+            p1 = np.array([float(pos[space_id][0]), float(pos[space_id][1])])
 
             curves.append(
                 CurveSpec(
@@ -353,17 +341,15 @@ class VisualizerModel:
             diff = p1 - p0
             length = float(np.linalg.norm(diff))
             if length > 0:
-                t = 0.70
-                apex = p0 + t * diff
+                apex = p0 + 0.70 * diff
                 d = diff / length
                 angle = degrees(atan2(float(d[1]), float(d[0])))
-                size = 0.06 * length
                 arrows.append(
                     ArrowSpec(
                         x=float(apex[0]),
                         y=float(apex[1]),
                         angle=angle,
-                        size=size,
+                        size=0.06 * length,
                         color=_COLOR_EDGE,
                     )
                 )
