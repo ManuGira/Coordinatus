@@ -60,7 +60,11 @@ class VisualizerModel:
     """Domain data and interaction state for the MVP visualizer.
 
     Populated via ``apply_message(msg)`` from decoded socket dicts.
+    Messages must be produced by ``coordinatus.serializer.to_json``.
     A Scene snapshot is produced by ``to_scene()`` on the Qt thread.
+
+    ``spaces`` is a flat ``list[Space]`` and ``coordinates`` is a flat
+    ``list[Coordinate]``; both are replaced on every ``apply_message`` call.
     """
 
     def __init__(self) -> None:
@@ -109,6 +113,15 @@ class VisualizerModel:
                 space.parent = self._implicit_root
             self._space_parent_uids[space.uid] = space.parent.uid
 
+        # Re-anchor view_space to the newly created Space objects.
+        if self.selected_node_id is not None:
+            new_spaces_dict = {s.uid: s for s in self.spaces}
+            if self.selected_node_id in new_spaces_dict:
+                self.view_space.parent = new_spaces_dict[self.selected_node_id]
+            else:
+                self.selected_node_id = None
+                self.view_space = Space2D(parent=self._implicit_root)
+
 
     def to_scene(self) -> Scene:
         """Build and return a full Scene snapshot. Called on the Qt thread."""
@@ -148,7 +161,8 @@ class VisualizerModel:
         A right-drag (dx > 0) shifts all projected view coords by +dx, so the
         scene follows the cursor: ``T_new = T @ translate(-dx, -dy)``.
         """
-        self.view_space.transform = self.view_space.transform @ translate2D(-dx, -dy)
+        new_transform = self.view_space.transform @ translate2D(-dx, -dy)
+        self.view_space = Space(transform=new_transform, parent=self.view_space.parent)
 
     def zoom(self, factor: float, cx: float, cy: float) -> None:
         """Scale view_space by ``factor`` around cursor position (cx, cy).
@@ -161,7 +175,8 @@ class VisualizerModel:
         t_center = translate2D(cx, cy)
         t_uncenter = translate2D(-cx, -cy)
         s = scale2D(1.0 / factor, 1.0 / factor)
-        self.view_space.transform = self.view_space.transform @ t_center @ s @ t_uncenter
+        new_transform = self.view_space.transform @ t_center @ s @ t_uncenter
+        self.view_space = Space(transform=new_transform, parent=self.view_space.parent)
 
     # ---------------------------------------------------------------------- #
     # Private helpers — to_scene
@@ -229,11 +244,12 @@ class VisualizerModel:
             )
 
         # 5.6.2 — Hierarchy edges (parent→child lines + directed arrowheads)
+        space_uids = {s.uid for s in self.spaces}
         for space in self.spaces:
             parent_id = self._space_parent_uids.get(space.uid)
-            if parent_id is None or parent_id not in self.spaces:  # TODO: rework condition
+            if parent_id is None or parent_id not in space_uids:
                 continue
-            if parent_id not in pos or space.uid not in pos:  # TODO: rework condition
+            if parent_id not in pos or space.uid not in pos:
                 continue
 
             p0 = np.array([float(pos[parent_id][0]), float(pos[parent_id][1])])
@@ -272,4 +288,43 @@ class VisualizerModel:
 
         curves = []
         polygons = []
-        return PlotScene(curves=curves, polygons=polygons)
+        scatters = []
+
+        arrow_head_size = 0.1
+        arrow_body_coords = np.array([
+            [0.0, 0.0],
+            [1.0 - arrow_head_size, 0.0]
+        ]).transpose()
+        arrow_head_coords = np.array([
+            [1.0, 0.0], 
+            [1-arrow_head_size, -arrow_head_size/3], 
+            [1-arrow_head_size, arrow_head_size/3]]).transpose()
+
+        # unit axes of each space, transformed to view space
+        for space in self.spaces:
+            origin = Point(coords=np.array([0.0, 0.0]), space=space)
+            x_axis_subspace = Space2D(parent=space)
+            y_axis_subspace = Space(transform=rotate2D(-np.pi/2) @ scale2D(-1, 1), parent=space)
+
+            scatters.append(
+                ScatterSpec(
+                    positions=origin.relative_to(self.view_space).coords.reshape(-1, 2),
+                    colors=['blue'],
+                    sizes=[0.1],
+                    ids=[f"{space.uid}_origin"]
+                )
+            )
+
+            for axis_space in [x_axis_subspace, y_axis_subspace]:
+                arrow_body = Point(coords=arrow_body_coords, space=axis_space).relative_to(self.view_space)
+
+                curves.append(
+                    CurveSpec(points=arrow_body.coords, color='red', width=2.0)
+                )
+
+                arrow_head = Point(coords=arrow_head_coords, space=axis_space).relative_to(self.view_space)
+                polygons.append(
+                    FilledPolygonSpec(vertices=arrow_head.coords, color='green', border_color='white')
+                )
+
+        return PlotScene(curves=curves, polygons=polygons, scatter=scatters)

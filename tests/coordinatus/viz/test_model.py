@@ -7,7 +7,9 @@ import math
 import numpy as np
 import pytest
 
-from coordinatus.coordinate import Point
+from coordinatus.coordinate import Coordinate, Point
+from coordinatus.coordinatus_types import CoordinateKind
+from coordinatus.serializer import to_json
 from coordinatus.space import Space, Space2D
 from coordinatus.transforms import translate2D
 from coordinatus.viz.model import VisualizerModel
@@ -19,27 +21,47 @@ from coordinatus.viz.model import VisualizerModel
 
 def _space_def(space_id: str, tx: float = 0.0, ty: float = 0.0,
                parent_id: str | None = None) -> dict:
-    """Return a single space-definition dict for inclusion in a 'spaces' list."""
+    """Return a single space-definition dict used by ``_state``."""
     return {
         "id": space_id,
         "parent_id": parent_id,
-        "transform": translate2D(tx, ty).tolist(),
+        "transform": translate2D(tx, ty),
     }
 
 
-def _state(spaces: list | None = None, points: list | None = None) -> dict:
-    """Build a full-state message."""
-    msg: dict = {}
-    if spaces is not None:
-        msg["spaces"] = spaces
-    if points is not None:
-        msg["points"] = points
-    return msg
+def _state(space_defs: list | None = None, point_defs: list | None = None) -> dict:
+    """Build a full-state message serialized via ``to_json``."""
+    uid_to_space: dict[str, Space] = {}
+    for d in (space_defs or []):
+        uid_to_space[d["id"]] = Space(uid=d["id"], transform=d["transform"])
+    for d in (space_defs or []):
+        if d.get("parent_id"):
+            uid_to_space[d["id"]].parent = uid_to_space[d["parent_id"]]
+    spaces = list(uid_to_space.values())
+
+    coords: list[Coordinate] = []
+    for pd in (point_defs or []):
+        space_uid = pd.get("space_id", "")
+        if space_uid not in uid_to_space:
+            continue
+        space = uid_to_space[space_uid]
+        for c in pd.get("coords", []):
+            coords.append(Coordinate(
+                kind=CoordinateKind.POINT,
+                coords=np.array(c, dtype=float),
+                space=space,
+            ))
+    return to_json(spaces, coords)
 
 
-def _pts(channel: str, space_id: str, coords: list) -> dict:
-    """Build a points sub-message for inclusion in a 'points' list."""
-    return {"channel": channel, "space_id": space_id, "coords": coords}
+def _pts(space_id: str, coords: list) -> dict:
+    """Build a point descriptor for inclusion in ``_state``'s ``point_defs``."""
+    return {"space_id": space_id, "coords": coords}
+
+
+def _get_space(m: VisualizerModel, uid: str) -> Space:
+    """Return the Space with the given uid from ``m.spaces``."""
+    return next(s for s in m.spaces if s.uid == uid)
 
 
 # --------------------------------------------------------------------------- #
@@ -50,8 +72,8 @@ def _pts(channel: str, space_id: str, coords: list) -> dict:
 class TestInit:
     def test_empty_domain_data(self):
         m = VisualizerModel()
-        assert m.spaces == {}
-        assert m.point_channels == {}
+        assert m.spaces == []
+        assert m.coordinates == []
 
     def test_view_space_parent_is_implicit_root(self):
         m = VisualizerModel()
@@ -82,17 +104,17 @@ class TestApplyMessageSpace:
     def test_root_space_added(self):
         m = VisualizerModel()
         m.apply_message(_state([_space_def("world")]))
-        assert "world" in m.spaces
+        assert any(s.uid == "world" for s in m.spaces)
 
     def test_root_space_parent_is_implicit_root(self):
         m = VisualizerModel()
         m.apply_message(_state([_space_def("world")]))
-        assert m.spaces["world"].parent is m._implicit_root
+        assert _get_space(m, "world").parent is m._implicit_root
 
     def test_root_space_transform(self):
         m = VisualizerModel()
         m.apply_message(_state([_space_def("world", tx=3.0, ty=4.0)]))
-        assert np.allclose(m.spaces["world"].transform, translate2D(3.0, 4.0))
+        assert np.allclose(_get_space(m, "world").transform, translate2D(3.0, 4.0))
 
     def test_child_space_parent_set(self):
         m = VisualizerModel()
@@ -100,7 +122,7 @@ class TestApplyMessageSpace:
             _space_def("world"),
             _space_def("sensor", tx=1.0, ty=2.0, parent_id="world"),
         ]))
-        assert m.spaces["sensor"].parent is m.spaces["world"]
+        assert _get_space(m, "sensor").parent is _get_space(m, "world")
 
     def test_out_of_order_child_before_parent(self):
         m = VisualizerModel()
@@ -109,9 +131,9 @@ class TestApplyMessageSpace:
             _space_def("sensor", tx=1.0, parent_id="world"),
             _space_def("world"),
         ]))
-        assert "world" in m.spaces
-        assert "sensor" in m.spaces
-        assert m.spaces["sensor"].parent is m.spaces["world"]
+        assert any(s.uid == "world" for s in m.spaces)
+        assert any(s.uid == "sensor" for s in m.spaces)
+        assert _get_space(m, "sensor").parent is _get_space(m, "world")
 
     def test_out_of_order_chain(self):
         m = VisualizerModel()
@@ -121,23 +143,23 @@ class TestApplyMessageSpace:
             _space_def("child", parent_id="root"),
             _space_def("root"),
         ]))
-        assert "root" in m.spaces
-        assert "child" in m.spaces
-        assert "gc" in m.spaces
-        assert m.spaces["gc"].parent is m.spaces["child"]
+        assert any(s.uid == "root" for s in m.spaces)
+        assert any(s.uid == "child" for s in m.spaces)
+        assert any(s.uid == "gc" for s in m.spaces)
+        assert _get_space(m, "gc").parent is _get_space(m, "child")
 
     def test_new_message_replaces_old_spaces(self):
         m = VisualizerModel()
         m.apply_message(_state([_space_def("world", tx=1.0)]))
         m.apply_message(_state([_space_def("world", tx=5.0)]))
-        assert np.allclose(m.spaces["world"].transform, translate2D(5.0, 0.0))
+        assert np.allclose(_get_space(m, "world").transform, translate2D(5.0, 0.0))
         assert len(m.spaces) == 1
 
     def test_spaces_absent_from_new_message_are_removed(self):
         m = VisualizerModel()
         m.apply_message(_state([_space_def("world"), _space_def("sensor", parent_id="world")]))
         m.apply_message(_state([_space_def("world")]))
-        assert "sensor" not in m.spaces
+        assert not any(s.uid == "sensor" for s in m.spaces)
 
 
 # --------------------------------------------------------------------------- #
@@ -146,67 +168,51 @@ class TestApplyMessageSpace:
 
 
 class TestApplyMessagePoints:
-    def test_points_added_to_channel(self):
+    def test_points_stored_in_coordinates(self):
         m = VisualizerModel()
         m.apply_message(_state(
-            spaces=[_space_def("world")],
-            points=[_pts("lidar", "world", [[1.0, 2.0], [3.0, 4.0]])],
+            space_defs=[_space_def("world")],
+            point_defs=[_pts("world", [[1.0, 2.0], [3.0, 4.0]])],
         ))
-        assert "lidar" in m.point_channels
-        assert len(m.point_channels["lidar"]) == 2
+        assert len(m.coordinates) == 2
 
     def test_points_in_correct_space(self):
         m = VisualizerModel()
         m.apply_message(_state(
-            spaces=[_space_def("world")],
-            points=[_pts("ch", "world", [[7.0, 8.0]])],
+            space_defs=[_space_def("world")],
+            point_defs=[_pts("world", [[7.0, 8.0]])],
         ))
-        pt = m.point_channels["ch"][0]
-        assert pt.space is m.spaces["world"]
-        assert np.allclose(pt.coords, [7.0, 8.0])
+        coord = m.coordinates[0]
+        assert coord.space is _get_space(m, "world")
+        assert np.allclose(coord.coords, [7.0, 8.0])
 
-    def test_unknown_space_drops_silently(self):
+    def test_unknown_space_yields_empty_coordinates(self):
         m = VisualizerModel()
-        m.apply_message(_state(points=[_pts("ch", "missing", [[1.0, 2.0]])]))
-        assert "ch" not in m.point_channels
+        m.apply_message(_state(point_defs=[_pts("missing", [[1.0, 2.0]])]))
+        assert m.coordinates == []
 
     def test_new_message_replaces_old_points(self):
         m = VisualizerModel()
         m.apply_message(_state(
-            spaces=[_space_def("world")],
-            points=[_pts("ch", "world", [[1.0, 0.0], [2.0, 0.0], [3.0, 0.0]])],
+            space_defs=[_space_def("world")],
+            point_defs=[_pts("world", [[1.0, 0.0], [2.0, 0.0], [3.0, 0.0]])],
         ))
         m.apply_message(_state(
-            spaces=[_space_def("world")],
-            points=[_pts("ch", "world", [[9.0, 0.0]])],
+            space_defs=[_space_def("world")],
+            point_defs=[_pts("world", [[9.0, 0.0]])],
         ))
-        assert len(m.point_channels["ch"]) == 1
+        assert len(m.coordinates) == 1
 
-    def test_two_channels_in_one_message(self):
+    def test_multiple_points_in_one_message(self):
         m = VisualizerModel()
         m.apply_message(_state(
-            spaces=[_space_def("world")],
-            points=[
-                _pts("a", "world", [[1.0, 0.0]]),
-                _pts("b", "world", [[2.0, 0.0], [3.0, 0.0]]),
+            space_defs=[_space_def("world")],
+            point_defs=[
+                _pts("world", [[1.0, 0.0]]),
+                _pts("world", [[2.0, 0.0], [3.0, 0.0]]),
             ],
         ))
-        assert len(m.point_channels["a"]) == 1
-        assert len(m.point_channels["b"]) == 2
-
-
-# --------------------------------------------------------------------------- #
-# apply_message — set_display_space
-# --------------------------------------------------------------------------- #
-
-
-class TestApplyMessageSetDisplaySpace:
-    def test_select_space_called(self):
-        m = VisualizerModel()
-        m.apply_message(_state([_space_def("world")]))
-        m.apply_message({"type": "set_display_space", "space_id": "world"})
-        assert m.selected_node_id == "world"
-        assert m.view_space.parent is m.spaces["world"]
+        assert len(m.coordinates) == 3
 
 
 # --------------------------------------------------------------------------- #
@@ -220,7 +226,7 @@ class TestSelectSpace:
         m.apply_message(_state([_space_def("world")]))
         m.select_space("world")
         assert m.selected_node_id == "world"
-        assert m.view_space.parent is m.spaces["world"]
+        assert m.view_space.parent is _get_space(m, "world")
         assert np.allclose(m.view_space.transform, np.eye(3))
 
     def test_select_none_reverts_to_implicit_root(self):
@@ -254,7 +260,7 @@ class TestSelectSpace:
         # New state message — rebuilds all Space objects
         m.apply_message(_state([_space_def("world", tx=1.0)]))
 
-        assert m.view_space.parent is m.spaces["world"]          # re-anchored
+        assert m.view_space.parent is _get_space(m, "world")          # re-anchored
         assert np.allclose(m.view_space.transform, saved_transform)  # pan preserved
 
     def test_selected_space_removed_from_new_state(self):
@@ -546,9 +552,8 @@ class TestLabelRotation:
         from coordinatus.transforms import rotate2D
         m = VisualizerModel()
         angle = math.pi / 2  # 90 degrees CCW
-        m.apply_message({
-            "spaces": [{"id": "rotated", "parent_id": None, "transform": rotate2D(angle).tolist()}]
-        })
+        space = Space(uid="rotated", transform=rotate2D(angle))
+        m.apply_message(to_json([space], []))
         scene = m.to_scene()
         label = scene.graph.labels[0]
         assert label.rotation == pytest.approx(0.0)
