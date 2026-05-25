@@ -27,6 +27,8 @@ from coordinatus.viz.scene import (
     Scene,
 )
 
+from . import color_hash
+
 # --------------------------------------------------------------------------- #
 # Visual style constants
 # --------------------------------------------------------------------------- #
@@ -302,6 +304,8 @@ class VisualizerModel:
 
         # unit axes of each space, transformed to view space
         for space in self.spaces:
+            color = color_hash.generate(seed=space.uid)
+
             origin = Point(coords=np.array([0.0, 0.0]), space=space)
             x_axis_subspace = Space2D(parent=space)
             y_axis_subspace = Space(transform=rotate2D(-np.pi/2) @ scale2D(-1, 1), parent=space)
@@ -309,7 +313,7 @@ class VisualizerModel:
             scatters.append(
                 ScatterSpec(
                     positions=origin.relative_to(self.view_space).coords.reshape(-1, 2),
-                    colors=['blue'],
+                    colors=['red'],
                     sizes=[0.1],
                     ids=[f"{space.uid}_origin"]
                 )
@@ -319,12 +323,12 @@ class VisualizerModel:
                 arrow_body = Point(coords=arrow_body_coords, space=axis_space).relative_to(self.view_space)
 
                 curves.append(
-                    CurveSpec(points=arrow_body.coords, color='red', width=2.0)
+                    CurveSpec(points=arrow_body.coords, color=color, width=2.0)
                 )
 
                 arrow_head = Point(coords=arrow_head_coords, space=axis_space).relative_to(self.view_space)
                 polygons.append(
-                    FilledPolygonSpec(vertices=arrow_head.coords, color='green', border_color='white')
+                    FilledPolygonSpec(vertices=arrow_head.coords, color=color)
                 )
 
         return PlotScene(curves=curves, polygons=polygons, scatter=scatters)

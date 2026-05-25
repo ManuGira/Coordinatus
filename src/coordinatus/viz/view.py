@@ -12,12 +12,11 @@ from __future__ import annotations
 
 from typing import Protocol, runtime_checkable
 
-import numpy as np
-
 try:
     import pyqtgraph as pg
     from PySide6.QtCore import QPointF, Qt
-    from PySide6.QtWidgets import QMainWindow, QSplitter
+    from PySide6.QtGui import QPolygonF
+    from PySide6.QtWidgets import QGraphicsPolygonItem, QMainWindow, QSplitter
 except ImportError as exc:  # pragma: no cover
     raise SystemExit(
         "Missing dependencies. Install with:\n  uv add pyqtgraph PySide6 --dev"
@@ -251,7 +250,7 @@ class _PlotPanel(pg.PlotWidget):
 
         self._scatter_items: list[pg.ScatterPlotItem] = []
         self._curve_items: list[pg.PlotDataItem] = []
-        self._polygon_items: list[pg.PlotCurveItem] = []
+        self._polygon_items: list[QGraphicsPolygonItem] = []
         self._label_items: list[pg.TextItem] = []
         self._first_render = True
 
@@ -308,13 +307,15 @@ class _PlotPanel(pg.PlotWidget):
     def _add_polygon(self, spec: FilledPolygonSpec) -> None:
         if len(spec.vertices) == 0:
             return
-        # Close the polygon by repeating the first vertex.
-        x = np.append(spec.vertices[0, :], spec.vertices[0, 0])
-        y = np.append(spec.vertices[1, :], spec.vertices[1, 0])
-        pen = (
-            pg.mkPen(spec.border_color) if spec.border_color else pg.mkPen(None)
+        polygon = QPolygonF(
+            [
+                QPointF(float(spec.vertices[0, i]), float(spec.vertices[1, i]))
+                for i in range(spec.vertices.shape[1])
+            ]
         )
-        item = pg.PlotCurveItem(x=x, y=y, pen=pen, brush=pg.mkBrush(spec.color))
+        item = QGraphicsPolygonItem(polygon)
+        item.setBrush(pg.mkBrush(spec.color))
+        item.setPen(pg.mkPen(spec.border_color) if spec.border_color else pg.mkPen(None))
         self.addItem(item)
         self._polygon_items.append(item)
 
