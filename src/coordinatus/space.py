@@ -29,16 +29,19 @@ class Space:
         >>> # Get transformation to absolute space
         >>> absolute_t = child.compute_absolute_transform()
     """
-    def __init__(self, transform: np.ndarray, parent: Optional['Space'] = None):
+    def __init__(self, transform: np.ndarray, parent: Optional['Space'] = None, uid: Optional[str] = None):
         """Initialize a coordinate space.
         
         Args:
             transform: Affine transformation matrix relative to parent in homogeneous
                       coordinates. A (D+1)x(D+1) matrix for a D-dimensional space.
             parent: Parent coordinate space. If None, this is a root space.
+            uid: Optional unique identifier for this space (not used in computations, but can be helpful for debugging or referencing spaces).
         """
         self.transform = transform
         self.parent = parent
+        self.uid = f"Space_{id(self)}" if uid is None else uid
+
         if transform is None:
             raise ValueError("transform must be a numpy array, not None. Use Space1D(), Space2D(), or Space3D() for identity root spaces.")
 
@@ -223,9 +226,10 @@ class Space1D(Space):
     
     Args:
         parent: Optional parent coordinate space.
+        uid: Optional unique identifier for this space. Not used in computations, but can be helpful for debugging or referencing spaces.
     """
-    def __init__(self, parent: Optional[Space] = None):
-        super().__init__(transform=np.eye(2), parent=parent)
+    def __init__(self, parent: Optional[Space] = None, uid: Optional[str] = None):
+        super().__init__(transform=np.eye(2), parent=parent, uid=uid)
 
 
 class Space2D(Space):
@@ -236,9 +240,10 @@ class Space2D(Space):
     
     Args:
         parent: Optional parent coordinate space.
+        uid: Optional unique identifier for this space. Not used in computations, but can be helpful for debugging or referencing spaces.
     """
-    def __init__(self, parent: Optional[Space] = None):
-        super().__init__(transform=np.eye(3), parent=parent)
+    def __init__(self, parent: Optional[Space] = None, uid: Optional[str] = None):
+        super().__init__(transform=np.eye(3), parent=parent, uid=uid)
 
 
 class Space3D(Space):
@@ -249,9 +254,10 @@ class Space3D(Space):
     
     Args:
         parent: Optional parent coordinate space.
+            uid: Optional unique identifier for this space. Not used in computations, but can be helpful for debugging or referencing spaces.
     """
-    def __init__(self, parent: Optional[Space] = None):
-        super().__init__(transform=np.eye(4), parent=parent)
+    def __init__(self, parent: Optional[Space] = None, uid: Optional[str] = None):
+        super().__init__(transform=np.eye(4), parent=parent, uid=uid)
 
 class Space4D(Space):
     """A 4D identity coordinate space (root/absolute).
@@ -261,9 +267,10 @@ class Space4D(Space):
     
     Args:
         parent: Optional parent coordinate space.
+        uid: Optional unique identifier for this space. Not used in computations, but can be helpful for debugging or referencing spaces.
     """
-    def __init__(self, parent: Optional[Space] = None):
-        super().__init__(transform=np.eye(5), parent=parent)
+    def __init__(self, parent: Optional[Space] = None, uid: Optional[str] = None):
+        super().__init__(transform=np.eye(5), parent=parent, uid=uid)
 
 class SpaceND(Space):
     """A generic N-dimensional identity coordinate space (root/absolute).
@@ -272,11 +279,12 @@ class SpaceND(Space):
     coordinate hierarchies.
     
     Args:
-        parent: Optional parent coordinate space.
         N: The number of dimensions for this space.
+        parent: Optional parent coordinate space.
+        uid: Optional unique identifier for this space. Not used in computations, but can be helpful for debugging or referencing spaces.
     """
-    def __init__(self, N: int, parent: Optional[Space] = None):
-        super().__init__(transform=np.eye(N + 1), parent=parent)
+    def __init__(self, N: int, parent: Optional[Space] = None, uid: Optional[str] = None):
+        super().__init__(transform=np.eye(N + 1), parent=parent, uid=uid)
 
 
 class ProjectionSpace(Space):
@@ -292,14 +300,15 @@ class ProjectionSpace(Space):
             FROM parent coordinates TO this space's lower-dimensional coordinates.
             For a 3D → 2D projection: a 3x4 matrix.
         parent: The higher-dimensional parent space.
+        uid: Optional unique identifier for this space. Not used in computations, but can be helpful for debugging or referencing spaces.
     """
-    def __init__(self, projection_matrix: np.ndarray, parent: Space):
+    def __init__(self, projection_matrix: np.ndarray, parent: Space, uid: Optional[str] = None):
         self.projection_matrix = projection_matrix
         pseudo_inv = np.linalg.pinv(projection_matrix)
-        super().__init__(transform=pseudo_inv, parent=parent)
+        super().__init__(transform=pseudo_inv, parent=parent, uid=uid)
 
 
-def create_space(parent: Optional[Space]=None, tx: float=0.0, ty: float=0.0, angle_rad: float=0.0, sx: float=1.0, sy: float=1.0) -> Space:
+def create_space(parent: Optional[Space]=None, tx: float=0.0, ty: float=0.0, angle_rad: float=0.0, sx: float=1.0, sy: float=1.0, uid: Optional[str] = None) -> Space:
     """Factory function to create a coordinate space using TRS (Translation-Rotation-Scale) parameters.
     
     Convenience function that constructs a coordinate space from intuitive transformation
@@ -313,6 +322,7 @@ def create_space(parent: Optional[Space]=None, tx: float=0.0, ty: float=0.0, ang
         angle_rad: Rotation angle in radians, counter-clockwise (default: 0.0)
         sx: Scale factor along X-axis (default: 1.0)
         sy: Scale factor along Y-axis (default: 1.0)
+        uid: Optional unique identifier for this space. Not used in computations, but can be helpful for debugging or referencing spaces.
     
     Returns:
         A new Space with the specified transformation relative to its parent.
@@ -325,7 +335,7 @@ def create_space(parent: Optional[Space]=None, tx: float=0.0, ty: float=0.0, ang
         >>> child = create_space(root, angle_rad=np.pi/2, sx=2, sy=2)
     """
     transform = trs2D(tx, ty, angle_rad, sx, sy)
-    return Space(transform=transform, parent=parent)
+    return Space(transform=transform, parent=parent, uid=uid)
 
 
 def _find_lca(a: Space, b: Space) -> Space:

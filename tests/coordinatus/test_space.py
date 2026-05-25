@@ -742,6 +742,98 @@ class TestProjectionSpace:
         np.testing.assert_array_almost_equal(screen.transform, expected_pinv)
 
 
+class TestSpaceUid:
+    """Tests for the uid attribute on Space and its subclasses."""
+
+    def test_uid_auto_generated_when_none(self):
+        """uid is auto-generated when not provided."""
+        space = Space(transform=np.eye(3))
+        assert space.uid is not None
+        assert isinstance(space.uid, str)
+
+    def test_uid_auto_generated_format(self):
+        """Auto-generated uid has the format 'Space_<id>'."""
+        space = Space(transform=np.eye(3))
+        assert space.uid == f"Space_{id(space)}"
+
+    def test_uid_custom_value_stored(self):
+        """Custom uid is stored as provided."""
+        space = Space(transform=np.eye(3), uid="my_space")
+        assert space.uid == "my_space"
+
+    def test_uid_distinct_across_instances(self):
+        """Two spaces without explicit uid have different uid values."""
+        a = Space(transform=np.eye(3))
+        b = Space(transform=np.eye(3))
+        assert a.uid != b.uid
+
+    def test_uid_space1d_default(self):
+        """Space1D auto-generates a uid when none is provided."""
+        space = Space1D()
+        assert space.uid == f"Space_{id(space)}"
+
+    def test_uid_space1d_custom(self):
+        """Space1D stores a custom uid."""
+        space = Space1D(uid="root_1d")
+        assert space.uid == "root_1d"
+
+    def test_uid_space2d_default(self):
+        """Space2D auto-generates a uid when none is provided."""
+        space = Space2D()
+        assert space.uid == f"Space_{id(space)}"
+
+    def test_uid_space2d_custom(self):
+        """Space2D stores a custom uid."""
+        space = Space2D(uid="world")
+        assert space.uid == "world"
+
+    def test_uid_space3d_custom(self):
+        """Space3D stores a custom uid."""
+        space = Space3D(uid="scene_root")
+        assert space.uid == "scene_root"
+
+    def test_uid_space4d_custom(self):
+        """Space4D stores a custom uid."""
+        space = Space4D(uid="hyper_root")
+        assert space.uid == "hyper_root"
+
+    def test_uid_spacend_custom(self):
+        """SpaceND stores a custom uid."""
+        space = SpaceND(5, uid="nd_root")
+        assert space.uid == "nd_root"
+
+    def test_uid_spacend_default(self):
+        """SpaceND auto-generates a uid when none is provided."""
+        space = SpaceND(3)
+        assert space.uid == f"Space_{id(space)}"
+
+    def test_uid_create_space_default(self):
+        """create_space auto-generates a uid when none is provided."""
+        space = create_space()
+        assert space.uid == f"Space_{id(space)}"
+
+    def test_uid_create_space_custom(self):
+        """create_space stores a custom uid."""
+        space = create_space(uid="factory_space")
+        assert space.uid == "factory_space"
+
+    def test_uid_projection_space_custom(self):
+        """ProjectionSpace stores a custom uid."""
+        from coordinatus.transforms.dimension import project_xyz_to_xy
+        screen = ProjectionSpace(
+            projection_matrix=project_xyz_to_xy(),
+            parent=Space3D(),
+            uid="screen",
+        )
+        assert screen.uid == "screen"
+
+    def test_uid_not_used_in_equality(self):
+        """uid does not affect space equality — two identity spaces with different uid are equal."""
+        a = Space2D(uid="a")
+        b = Space2D(uid="b")
+        assert a == b
+
+
 class TestComputeRelativeTransformToWithProjection:
     """Tests for compute_relative_transform_to with ProjectionSpace in the path."""
 
