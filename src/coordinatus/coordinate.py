@@ -5,7 +5,7 @@ import numpy as np
 from numpy.typing import ArrayLike
 
 from .space import Space
-from .types import CoordinateKind
+from .coordinatus_types import CoordinateKind
 
 
 def transform_coordinate(transform: np.ndarray, coordinates: np.ndarray, kind: CoordinateKind) -> np.ndarray:

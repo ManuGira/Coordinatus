@@ -1,7 +1,7 @@
 """Coordinate package for managing coordinate systems and transformations."""
 
 # Import main classes and functions for convenient access
-from .types import CoordinateKind
+from .coordinatus_types import CoordinateKind
 from .space import Space, Space1D, Space2D, Space3D, Space4D, SpaceND, ProjectionSpace, create_space
 from . import transforms  # allows access to `coordinatus.transforms.translate2D(1, 2)``
 from .coordinate import Coordinate, Point, Vector, transform_coordinate

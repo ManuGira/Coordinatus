@@ -3,7 +3,7 @@
 import numpy as np
 from coordinatus.coordinate import Coordinate, Point, Vector, transform_coordinate
 from coordinatus.space import Space, Space3D, ProjectionSpace
-from coordinatus.types import CoordinateKind
+from coordinatus.coordinatus_types import CoordinateKind
 from coordinatus.transforms import translate2D, rotate2D, scale2D
 from coordinatus.transforms import project_xyz_to_xy, project_xy_to_x
 
