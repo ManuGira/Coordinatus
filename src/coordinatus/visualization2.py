@@ -32,20 +32,19 @@ Requirements (dev group):
 
 from __future__ import annotations
 
-import os as _os
-import sys as _sys
+import numpy as np
 
-# Running as `python src/coordinatus/visualization2.py` inserts the package
-# directory into sys.path[0], which shadows the stdlib `types` module with our
-# own types.py and causes a circular import.  Remove it before any other import.
-_pkg_dir = _os.path.dirname(_os.path.abspath(__file__))
-while _pkg_dir in _sys.path:
-    _sys.path.remove(_pkg_dir)
-del _pkg_dir, _os, _sys
-
-import math
 import queue
 import sys
+
+from coordinatus.viz.model import VisualizerModel
+from coordinatus.viz.presenter import Presenter
+from coordinatus.viz.server import HOST, PORT, SocketServer
+from coordinatus.viz.view import VisualizerView
+
+from coordinatus.coordinate import Coordinate, Point
+from coordinatus.space import Space, Space2D
+from coordinatus.transforms import translate2D, rotate2D
 
 try:
     import pyqtgraph as pg  # noqa: F401 — imported here to fail early with a clear message
@@ -55,10 +54,7 @@ except ImportError as exc:  # pragma: no cover
         "Missing dependencies. Install with:\n  uv add pyqtgraph PySide6 --dev"
     ) from exc
 
-from coordinatus.viz.model import VisualizerModel
-from coordinatus.viz.presenter import Presenter
-from coordinatus.viz.server import HOST, PORT, SocketServer
-from coordinatus.viz.view import VisualizerView
+
 
 # ── Example scene ──────────────────────────────────────────────────────────────
 #
@@ -69,10 +65,7 @@ from coordinatus.viz.view import VisualizerView
 #     └─ robot   (translated +2, +1 and rotated 30° CCW w.r.t. world)
 #          └─ sensor  (translated +1 along robot's x-axis)
 
-from coordinatus.coordinate import Coordinate, Point
-from coordinatus.space import Space, Space2D
-from coordinatus.transforms import translate2D, rotate2D
-import numpy as np
+
 
 def generate_example_scene() -> tuple[list[Space], list[Coordinate]]:
     world_space = Space2D(uid="world")

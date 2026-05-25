@@ -11,7 +11,7 @@ from typing import Any
 import networkx as nx
 import numpy as np
 
-from coordinatus.coordinate import Point
+from coordinatus.coordinate import Coordinate, Point
 from coordinatus.space import Space, Space2D
 from coordinatus.transforms import translate2D
 from coordinatus.transforms.rotate import rotate2D
@@ -74,7 +74,7 @@ class VisualizerModel:
         # Domain data
         self.spaces: list[Space] = []
         self._space_parent_uids: dict[str, str | None] = {}  # space_id → parent_id
-        self.coordinates: list[Point] = []
+        self.coordinates: list[Coordinate] = []
 
         # Interaction / camera state
         self.view_space: Space = Space2D(parent=self._implicit_root)

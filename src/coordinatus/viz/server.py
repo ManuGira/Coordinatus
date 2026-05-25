@@ -1,27 +1,8 @@
 """SocketServer — background TCP listener that puts decoded JSON dicts into a queue.
 
-No Qt dependency; the Presenter drains the queue on each timer tick.
+The Presenter drains the queue on each timer tick.
 The server is agnostic of message content — it puts every decoded dict
 into the queue unchanged; interpretation is left to the Model.
-
-Protocol — one JSON object per line (newline-terminated):
-
-    Compound state update (spaces and/or points, replaces previous state):
-        {
-            "spaces": [
-                {"id": "world", "parent_id": null,
-                 "transform": [[1,0,0],[0,1,0],[0,0,1]]},
-                {"id": "sensor", "parent_id": "world",
-                 "transform": [[0.707,-0.707,1],[0.707,0.707,0],[0,0,1]]}
-            ],
-            "points": [
-                {"channel": "lidar", "space_id": "sensor",
-                 "coords": [[1.0,2.0],[3.0,4.0]]}
-            ]
-        }
-
-    Display-space override:
-        {"type": "set_display_space", "space_id": "world"}
 """
 
 from __future__ import annotations
@@ -33,8 +14,6 @@ import threading
 
 HOST = "127.0.0.1"
 PORT = 9876
-
-
 class SocketServer(threading.Thread):
     """Background daemon that accepts TCP connections and puts decoded dicts into a queue.
 

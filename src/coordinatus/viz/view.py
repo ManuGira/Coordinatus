@@ -10,7 +10,6 @@ Requires pyqtgraph and PySide6 (dev dependencies):
 
 from __future__ import annotations
 
-import math
 from typing import Protocol, runtime_checkable
 
 import numpy as np
@@ -95,7 +94,7 @@ class _DirectedGraphPanel(pg.PlotWidget):
     def set_handler(self, handler: ViewEventHandler) -> None:
         self._handler = handler
 
-    def render(self, scene: GraphScene, needs_rebuild: bool) -> None:
+    def display(self, scene: GraphScene, needs_rebuild: bool) -> None:
         """Render the graph scene.
 
         Full rebuild when *needs_rebuild* is True; style-only update otherwise.
@@ -261,7 +260,7 @@ class _PlotPanel(pg.PlotWidget):
     def set_handler(self, handler: ViewEventHandler) -> None:
         self._handler = handler
 
-    def render(self, scene: PlotScene) -> None:
+    def display(self, scene: PlotScene) -> None:
         """Render a PlotScene snapshot; replaces all items on every call."""
         self._clear_all()
         for spec in scene.curves:
@@ -445,7 +444,7 @@ class VisualizerView(QMainWindow):
         self._graph_panel.set_handler(handler)
         self._plot_panel.set_handler(handler)
 
-    def render(self, scene: Scene) -> None:
+    def display(self, scene: Scene) -> None:
         """Render a Scene snapshot.
 
         Performs a topology diff to decide between a full graph rebuild
@@ -462,6 +461,6 @@ class VisualizerView(QMainWindow):
             self._prev_scene.graph.curves
         )
 
-        self._graph_panel.render(scene.graph, needs_rebuild)
-        self._plot_panel.render(scene.plot)
+        self._graph_panel.display(scene.graph, needs_rebuild)
+        self._plot_panel.display(scene.plot)
         self._prev_scene = scene

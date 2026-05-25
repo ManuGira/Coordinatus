@@ -24,10 +24,5 @@ class TestPackageImports:
         import coordinatus
         
         # Since matplotlib is installed in dev dependencies, this should not be None
-        assert coordinatus.visualization is not None
-        
-        # Test that we can import from it
-        from coordinatus.visualization import draw_space_axes, draw_points
-        assert callable(draw_space_axes)
-        assert callable(draw_points)
+        assert coordinatus.visualization2 is not None
 

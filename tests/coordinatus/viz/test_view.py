@@ -8,14 +8,10 @@ exercised through the running application in manual / integration testing.
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from coordinatus.viz.scene import (
-    ArrowSpec,
     CurveSpec,
-    FilledPolygonSpec,
     GraphScene,
-    LabelSpec,
     PlotScene,
     ScatterSpec,
     Scene,

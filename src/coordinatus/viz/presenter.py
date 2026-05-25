@@ -75,7 +75,7 @@ class Presenter:
             self.model.apply_message(msg)
 
         scene = self.model.to_scene()
-        self.view.render(scene)
+        self.view.display(scene)
 
     # ── ViewEventHandler implementation ───────────────────────────────────────
 

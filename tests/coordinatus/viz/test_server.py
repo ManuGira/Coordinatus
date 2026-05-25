@@ -7,7 +7,6 @@ import queue
 import socket
 import time
 
-import pytest
 
 from coordinatus.viz.server import SocketServer
 

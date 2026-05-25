@@ -9,10 +9,9 @@ from .serializer import to_json, from_json
 
 # Visualization is optional - only available if matplotlib is installed
 try:
-    from . import visualization
-    from .visualization import draw_space_axes, draw_points, draw_space_hierarchy
+    from . import visualization2
 except ImportError:  # pragma: no cover
-    visualization = None  # type: ignore[assignment]
+    visualization2 = None  # type: ignore[assignment]
 
 # Define what's available when using "from coordinate import *"
 __all__ = [

@@ -1,7 +1,6 @@
 """Unit tests for coordinatus.viz.scene — construction only, no Qt."""
 
 import numpy as np
-import pytest
 
 from coordinatus.viz.scene import (
     ArrowSpec,

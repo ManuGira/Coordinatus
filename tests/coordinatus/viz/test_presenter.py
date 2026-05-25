@@ -93,11 +93,11 @@ class TestPresenterStart:
 
 
 class TestOnTick:
-    def test_empty_inbox_still_calls_to_scene_and_render(self):
+    def test_empty_inbox_still_calls_to_scene_and_display(self):
         p, model, view, _ = _make_presenter()
         p._on_tick()
         model.to_scene.assert_called_once()
-        view.render.assert_called_once_with(model.to_scene.return_value)
+        view.display.assert_called_once_with(model.to_scene.return_value)
 
     def test_drains_messages_from_inbox(self):
         inbox = queue.Queue()
@@ -118,13 +118,13 @@ class TestOnTick:
         assert model.apply_message.call_count == 200
         assert inbox.qsize() == 100  # 100 left unconsumed
 
-    def test_render_called_with_scene_after_apply_messages(self):
+    def test_display_called_with_scene_after_apply_messages(self):
         inbox = queue.Queue()
         inbox.put({"spaces": []})
         p, model, view, _ = _make_presenter(inbox=inbox)
         p._on_tick()
-        # render was called with the scene produced *after* apply_message ran
-        view.render.assert_called_once_with(model.to_scene.return_value)
+        # display was called with the scene produced *after* apply_message ran
+        view.display.assert_called_once_with(model.to_scene.return_value)
 
 
 # ── ViewEventHandler methods ──────────────────────────────────────────────────

@@ -1,12 +1,11 @@
 """Unit tests for the serializer module (to_json / from_json)."""
 
 import numpy as np
-import pytest
 from coordinatus.space import Space, Space2D, Space3D
-from coordinatus.coordinate import Coordinate, Point, Vector
+from coordinatus.coordinate import Point, Vector
 from coordinatus.coordinatus_types import CoordinateKind
 from coordinatus.serializer import to_json, from_json
-from coordinatus.transforms import translate2D, rotate2D
+from coordinatus.transforms import translate2D
 
 
 # ---------------------------------------------------------------------------

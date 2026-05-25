@@ -45,6 +45,12 @@ class Space:
         if transform is None:
             raise ValueError("transform must be a numpy array, not None. Use Space1D(), Space2D(), or Space3D() for identity root spaces.")
 
+    def __repr__(self):
+        if self.D_in == self.D_out:
+            return f"{self.uid} {self.D_in}D - ({self.transform.shape[0]}x{self.transform.shape[1]})"
+        else:
+            return f"{self.uid} {self.D_in}D → {self.D_out}D - ({self.transform.shape[0]}x{self.transform.shape[1]})"
+
     @property
     def D_in(self) -> int:
         """
