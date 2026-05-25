@@ -69,63 +69,53 @@ from coordinatus.viz.view import VisualizerView
 #     └─ robot   (translated +2, +1 and rotated 30° CCW w.r.t. world)
 #          └─ sensor  (translated +1 along robot's x-axis)
 
-_ANGLE = math.radians(30)
-_COS, _SIN = math.cos(_ANGLE), math.sin(_ANGLE)
+from coordinatus.coordinate import Coordinate, Point
+from coordinatus.space import Space, Space2D
+from coordinatus.transforms import translate2D, rotate2D
+import numpy as np
 
-_EXAMPLE_MESSAGE: dict = {
-    "spaces": [
-        {
-            "id": "world",
-            "parent_id": None,
-            "transform": [[1, 0, 0], [0, 1, 0], [0, 0, 1]],
-        },
-        {
-            "id": "robot",
-            "parent_id": "world",
-            "transform": [
-                [_COS, -_SIN, 2.0],
-                [_SIN,  _COS, 1.0],
-                [0,     0,    1.0],
-            ],
-        },
-        {
-            "id": "sensor",
-            "parent_id": "robot",
-            "transform": [[1, 0, 1.0], [0, 1, 0.0], [0, 0, 1.0]],
-        },
-    ],
-    "points": [
-        {
-            "channel": "world_pts",
-            "space_id": "world",
-            "coords": [
-                [0.5,  0.5],
-                [1.0,  0.0],
-                [0.0,  1.0],
-                [-0.5, 0.5],
-            ],
-        },
-        {
-            "channel": "sensor_pts",
-            "space_id": "sensor",
-            "coords": [
-                [0.2, 0.1],
-                [0.4, 0.3],
-                [0.6, 0.2],
-            ],
-        },
-    ],
-}
+def generate_example_scene() -> tuple[list[Space], list[Coordinate]]:
+    world_space = Space2D(uid="world")
+    robot_space = Space(
+        transform=translate2D(2, 1) @ rotate2D(np.pi/6),
+        parent=world_space,
+        uid="robot",
+    )
+    sensor_space = Space(
+        transform=translate2D(1, 0),
+        parent=robot_space,
+        uid="sensor",
+    )
+    spaces = [world_space, robot_space, sensor_space]
 
-
-# ── Entry point ────────────────────────────────────────────────────────────────
-
+    coordinates = [
+        Point(
+            space=world_space,
+            coords=np.array([
+                [0.5, 1.0, 0.0, -0.5],
+                [0.5, 0.0, 1.0, 0.5],
+            ]),
+        ),
+        Point(
+            space=sensor_space,
+            coords=np.array([
+                [0.2, 0.4, 0.6],
+                [0.1, 0.3, 0.2],
+            ]),
+        ),
+    ]
+    return spaces, coordinates
 
 def main() -> None:
+    from coordinatus.serializer import to_json
+
     inbox: queue.Queue[dict] = queue.Queue()
 
     model = VisualizerModel()
-    model.apply_message(_EXAMPLE_MESSAGE)
+
+    example_spaces, example_coordinates = generate_example_scene()
+    example_message = to_json(example_spaces, example_coordinates)
+    model.apply_message(example_message)
 
     app = QApplication(sys.argv)
 

@@ -299,8 +299,8 @@ class _PlotPanel(pg.PlotWidget):
         if len(spec.points) == 0:
             return
         item = self.plot(
-            spec.points[:, 0],
-            spec.points[:, 1],
+            spec.points[0, :],
+            spec.points[1, :],
             pen=pg.mkPen(spec.color, width=spec.width),
             name=spec.name or None,
         )
@@ -310,8 +310,8 @@ class _PlotPanel(pg.PlotWidget):
         if len(spec.vertices) == 0:
             return
         # Close the polygon by repeating the first vertex.
-        x = np.append(spec.vertices[:, 0], spec.vertices[0, 0])
-        y = np.append(spec.vertices[:, 1], spec.vertices[0, 1])
+        x = np.append(spec.vertices[0, :], spec.vertices[0, 0])
+        y = np.append(spec.vertices[1, :], spec.vertices[1, 0])
         pen = (
             pg.mkPen(spec.border_color) if spec.border_color else pg.mkPen(None)
         )

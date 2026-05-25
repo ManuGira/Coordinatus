@@ -14,6 +14,7 @@ import numpy as np
 from coordinatus.coordinate import Point
 from coordinatus.space import Space, Space2D
 from coordinatus.transforms import translate2D
+from coordinatus.transforms.rotate import rotate2D
 from coordinatus.transforms.scale import scale2D
 from coordinatus.viz.scene import (
     ArrowSpec,
@@ -67,20 +68,16 @@ class VisualizerModel:
         self._implicit_root: Space2D = Space2D()
 
         # Domain data
-        self.spaces: dict[str, Space] = {}
-        self._space_parent_ids: dict[str, str | None] = {}  # space_id → parent_id
-        self.point_channels: dict[str, list[Point]] = {}
+        self.spaces: list[Space] = []
+        self._space_parent_uids: dict[str, str | None] = {}  # space_id → parent_id
+        self.coordinates: list[Point] = []
 
         # Interaction / camera state
-        self.view_space: Space = Space(transform=np.eye(3), parent=self._implicit_root)
+        self.view_space: Space = Space2D(parent=self._implicit_root)
         self.hovered_node_id: str | None = None
         self.selected_node_id: str | None = None
         self.mouse_x: float = 0.0
         self.mouse_y: float = 0.0
-
-        # Per-channel color assignment
-        self._channel_colors: dict[str, str] = {}
-        self._color_index: int = 0
 
     # ---------------------------------------------------------------------- #
     # Public API
@@ -98,37 +95,20 @@ class VisualizerModel:
         Full state update::
 
             {"spaces": [{"id": ..., "parent_id": ..., "transform": ...}, ...],
-             "points": [{"channel": ..., "space_id": ..., "coords": [...]}, ...]}
-
-        Display-space override::
-
-            {"type": "set_display_space", "space_id": "world"}
+             "coordinates": [{"space_id": ..., "coords": [...]}, ...]}
         """
-        if "spaces" in msg:
-            self.spaces.clear()
-            self._space_parent_ids.clear()
-            self._resolve_spaces(msg["spaces"])
-            # Re-anchor view_space to the rebuilt Space object (preserves pan/zoom).
-            if self.selected_node_id is not None and self.selected_node_id in self.spaces:
-                self.view_space = Space(
-                    transform=self.view_space.transform,
-                    parent=self.spaces[self.selected_node_id],
-                )
-            elif self.selected_node_id is not None:
-                # Selected space no longer exists in the new state.
-                self.selected_node_id = None
-                self.view_space = Space(
-                    transform=self.view_space.transform,
-                    parent=self._implicit_root,
-                )
+        self.spaces.clear()
+        self._space_parent_uids.clear()
+        self.coordinates.clear()
 
-        if "points" in msg:
-            self.point_channels.clear()
-            for pts_msg in msg["points"]:
-                self._apply_points(pts_msg)
+        from coordinatus.serializer import from_json
+        self.spaces, self.coordinates = from_json(msg)
 
-        if msg.get("type") == "set_display_space":
-            self.select_space(msg.get("space_id"))
+        for space in self.spaces:
+            if space.parent is None:
+                space.parent = self._implicit_root
+            self._space_parent_uids[space.uid] = space.parent.uid
+
 
     def to_scene(self) -> Scene:
         """Build and return a full Scene snapshot. Called on the Qt thread."""
@@ -143,11 +123,12 @@ class VisualizerModel:
         If ``space_id`` is None or unknown the view reverts to the implicit root.
         """
         self.selected_node_id = space_id
-        if space_id is not None and space_id in self.spaces:
-            parent = self.spaces[space_id]
+        spaces_dict = {space.uid: space for space in self.spaces}
+        if self.selected_node_id in spaces_dict:
+            parent = spaces_dict[self.selected_node_id]
         else:
             parent = self._implicit_root
-        self.view_space = Space(transform=np.eye(3), parent=parent)
+        self.view_space = Space2D(parent=parent)
 
     def set_interaction(self, **kwargs: Any) -> None:
         """Update hover / mouse state. Does NOT touch view_space.
@@ -167,8 +148,7 @@ class VisualizerModel:
         A right-drag (dx > 0) shifts all projected view coords by +dx, so the
         scene follows the cursor: ``T_new = T @ translate(-dx, -dy)``.
         """
-        new_transform = self.view_space.transform @ translate2D(-dx, -dy)
-        self.view_space = Space(transform=new_transform, parent=self.view_space.parent)
+        self.view_space.transform = self.view_space.transform @ translate2D(-dx, -dy)
 
     def zoom(self, factor: float, cx: float, cy: float) -> None:
         """Scale view_space by ``factor`` around cursor position (cx, cy).
@@ -181,84 +161,11 @@ class VisualizerModel:
         t_center = translate2D(cx, cy)
         t_uncenter = translate2D(-cx, -cy)
         s = scale2D(1.0 / factor, 1.0 / factor)
-        new_transform = self.view_space.transform @ t_center @ s @ t_uncenter
-        self.view_space = Space(transform=new_transform, parent=self.view_space.parent)
-
-    # ---------------------------------------------------------------------- #
-    # Private helpers — apply_message
-    # ---------------------------------------------------------------------- #
-
-    def _resolve_spaces(self, space_defs: list[dict[str, Any]]) -> None:
-        """Register all spaces in ``space_defs``, resolving parent references.
-
-        Uses a local pending buffer to handle any declaration order within a
-        single message.  Unresolvable references (genuine cycles or missing
-        parents not present in the same message) are silently discarded.
-        """
-        pending: list[dict[str, Any]] = []
-        for space_def in space_defs:
-            self._try_register_space(space_def, pending)
-
-        changed = True
-        while changed and pending:
-            changed = False
-            next_pending: list[dict[str, Any]] = []
-            for space_def in pending:
-                pid: str | None = space_def.get("parent_id")
-                if pid is None or pid in self.spaces:
-                    self._register_space(space_def)
-                    changed = True
-                else:
-                    next_pending.append(space_def)
-            pending = next_pending
-
-    def _try_register_space(
-        self, space_def: dict[str, Any], pending: list[dict[str, Any]]
-    ) -> None:
-        pid: str | None = space_def.get("parent_id")
-        if pid is None or pid in self.spaces:
-            self._register_space(space_def)
-        else:
-            pending.append(space_def)
-
-    def _register_space(self, space_def: dict[str, Any]) -> None:
-        space_id: str = space_def["id"]
-        parent_id: str | None = space_def.get("parent_id")
-        transform = np.array(space_def["transform"], dtype=float)
-        parent: Space = (
-            self._implicit_root if parent_id is None else self.spaces[parent_id]
-        )
-        self.spaces[space_id] = Space(transform=transform, parent=parent)
-        self._space_parent_ids[space_id] = parent_id
-
-    def _apply_points(self, msg: dict[str, Any]) -> None:
-        channel_id: str = str(msg["channel"])
-        space_id: str = msg["space_id"]
-        coords_list: list[list[float]] = msg["coords"]
-
-        if space_id not in self.spaces:
-            return  # space unknown — silently drop
-
-        space = self.spaces[space_id]
-        if channel_id not in self.point_channels:
-            self.point_channels[channel_id] = []
-
-        for coord in coords_list:
-            self.point_channels[channel_id].append(
-                Point(coords=np.array(coord, dtype=float), space=space)
-            )
+        self.view_space.transform = self.view_space.transform @ t_center @ s @ t_uncenter
 
     # ---------------------------------------------------------------------- #
     # Private helpers — to_scene
     # ---------------------------------------------------------------------- #
-
-    def _get_channel_color(self, channel_id: str) -> str:
-        if channel_id not in self._channel_colors:
-            self._channel_colors[channel_id] = _PALETTE[
-                self._color_index % len(_PALETTE)
-            ]
-            self._color_index += 1
-        return self._channel_colors[channel_id]
 
     def _build_graph_scene(self) -> GraphScene:
         curves: list[CurveSpec] = []
@@ -271,23 +178,25 @@ class VisualizerModel:
 
         # Build directed graph and compute layout positions via networkx.
         G: nx.DiGraph = nx.DiGraph()
-        for space_id in self.spaces:
-            G.add_node(space_id)
-        for space_id, parent_id in self._space_parent_ids.items():
-            if parent_id in self.spaces and space_id in self.spaces:
+        for space in self.spaces:
+            G.add_node(space.uid)
+        for space_id, parent_id in self._space_parent_uids.items():
+            if parent_id is not None:
                 G.add_edge(parent_id, space_id)
+            else:
+                print()
         
         pos: dict[str, tuple[float, float]] = nx.spring_layout(G, seed=42)
 
         # 5.6.1 — Space origins → graph nodes (layout coords)
-        for space_id in self.spaces:
-            if space_id not in pos:
+        for space in self.spaces:
+            if space.uid not in pos:
                 continue
-            xy = pos[space_id]
+            xy = pos[space.uid]
 
-            if space_id == self.selected_node_id:
+            if space.uid == self.selected_node_id:
                 color = _COLOR_NODE_SELECTED
-            elif space_id == self.hovered_node_id:
+            elif space.uid == self.hovered_node_id:
                 color = _COLOR_NODE_HOVERED
             else:
                 color = _COLOR_NODE_DEFAULT
@@ -295,13 +204,13 @@ class VisualizerModel:
             scatter_positions.append([float(xy[0]), float(xy[1])])
             scatter_colors.append(color)
             scatter_sizes.append(_NODE_SIZE_DEFAULT)
-            scatter_ids.append(space_id)
+            scatter_ids.append(space.uid)
 
             labels.append(
                 LabelSpec(
                     x=float(xy[0]),
                     y=float(xy[1]),
-                    text=space_id,
+                    text=space.uid,
                     color=color,
                     rotation=0.0,
                     anchor=(0.5, -0.3),
@@ -320,15 +229,15 @@ class VisualizerModel:
             )
 
         # 5.6.2 — Hierarchy edges (parent→child lines + directed arrowheads)
-        for space_id in self.spaces:
-            parent_id = self._space_parent_ids.get(space_id)
-            if parent_id is None or parent_id not in self.spaces:
+        for space in self.spaces:
+            parent_id = self._space_parent_uids.get(space.uid)
+            if parent_id is None or parent_id not in self.spaces:  # TODO: rework condition
                 continue
-            if parent_id not in pos or space_id not in pos:
+            if parent_id not in pos or space.uid not in pos:  # TODO: rework condition
                 continue
 
             p0 = np.array([float(pos[parent_id][0]), float(pos[parent_id][1])])
-            p1 = np.array([float(pos[space_id][0]), float(pos[space_id][1])])
+            p1 = np.array([float(pos[space.uid][0]), float(pos[space.uid][1])])
 
             curves.append(
                 CurveSpec(
