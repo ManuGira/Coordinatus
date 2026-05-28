@@ -238,7 +238,7 @@ class VisualizerModel:
         if scatter_positions:
             scatter.append(
                 ScatterSpec(
-                    positions=np.array(scatter_positions),
+                    points=np.array(scatter_positions),
                     colors=scatter_colors,
                     sizes=scatter_sizes,
                     ids=scatter_ids,
@@ -312,9 +312,9 @@ class VisualizerModel:
 
             scatters.append(
                 ScatterSpec(
-                    positions=origin.relative_to(self.view_space).coords.reshape(-1, 2),
+                    points=origin.relative_to(self.view_space).coords.reshape(-1, 2),
                     colors=['red'],
-                    sizes=[0.1],
+                    sizes=[_NODE_SIZE_DEFAULT],
                     ids=[f"{space.uid}_origin"]
                 )
             )

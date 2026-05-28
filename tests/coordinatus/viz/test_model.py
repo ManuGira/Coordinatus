@@ -447,7 +447,7 @@ class TestToSceneGraph:
         scene = m.to_scene()
         sc = scene.graph.scatter[0]
         idx = sc.ids.index("world")
-        pos = sc.positions[idx]
+        pos = sc.points[idx]
         assert pos.shape == (2,)
         assert np.all(np.isfinite(pos))
 
@@ -473,8 +473,8 @@ class TestToSceneGraph:
         assert np.all(np.isfinite(curve.points))
         # Endpoints must match the node positions in the scatter.
         sc = scene.graph.scatter[0]
-        world_pos = sc.positions[sc.ids.index("world")]
-        sensor_pos = sc.positions[sc.ids.index("sensor")]
+        world_pos = sc.points[sc.ids.index("world")]
+        sensor_pos = sc.points[sc.ids.index("sensor")]
         assert np.allclose(curve.points[0], world_pos) or np.allclose(curve.points[0], sensor_pos)
 
     def test_hierarchy_arrow_at_70_percent(self):
@@ -488,8 +488,8 @@ class TestToSceneGraph:
         assert len(scene.graph.arrows) == 1
         arrow = scene.graph.arrows[0]
         sc = scene.graph.scatter[0]
-        p0 = sc.positions[sc.ids.index("world")]
-        p1 = sc.positions[sc.ids.index("sensor")]
+        p0 = sc.points[sc.ids.index("world")]
+        p1 = sc.points[sc.ids.index("sensor")]
         expected = p0 + 0.70 * (p1 - p0)
         assert arrow.x == pytest.approx(float(expected[0]))
         assert arrow.y == pytest.approx(float(expected[1]))

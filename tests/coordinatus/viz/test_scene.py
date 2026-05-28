@@ -47,12 +47,12 @@ class TestScatterSpec:
     def test_construction(self):
         pos = np.array([[1.0, 2.0], [3.0, 4.0]])
         s = ScatterSpec(
-            positions=pos,
+            points=pos,
             colors=["#ff0000", "#00ff00"],
             sizes=[5.0, 8.0],
             ids=["a", "b"],
         )
-        assert np.array_equal(s.positions, pos)
+        assert np.array_equal(s.points, pos)
         assert s.colors == ["#ff0000", "#00ff00"]
         assert s.sizes == [5.0, 8.0]
         assert s.ids == ["a", "b"]
@@ -107,7 +107,7 @@ class TestGraphScene:
     def test_populated_construction(self):
         c = CurveSpec(points=np.zeros((2, 2)), color="#ff0000", width=1.0)
         a = ArrowSpec(x=0.0, y=0.0, angle=0.0, size=1.0, color="#ff0000")
-        sc = ScatterSpec(positions=np.zeros((1, 2)), colors=["#aaaaaa"],
+        sc = ScatterSpec(points=np.zeros((1, 2)), colors=["#aaaaaa"],
                          sizes=[5.0], ids=["n1"])
         lb = LabelSpec(x=0.0, y=0.0, text="n1", color="#ffffff")
         g = GraphScene(curves=[c], arrows=[a], scatter=[sc], labels=[lb])
@@ -141,7 +141,7 @@ class TestPlotScene:
     def test_default_lists_are_independent(self):
         p1 = PlotScene()
         p2 = PlotScene()
-        p1.scatter.append(ScatterSpec(positions=np.zeros((1, 2)),
+        p1.scatter.append(ScatterSpec(points=np.zeros((1, 2)),
                                       colors=["#aaaaaa"], sizes=[4.0], ids=["x"]))
         assert p2.scatter == []
 

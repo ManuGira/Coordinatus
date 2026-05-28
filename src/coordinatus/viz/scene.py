@@ -28,7 +28,7 @@ class FilledPolygonSpec:
 
 @dataclass
 class ScatterSpec:
-    positions: np.ndarray   # (N, 2)
+    points: np.ndarray   # (N, 2)
     colors: list[str]       # per-point hex
     sizes: list[float]      # per-point px
     ids: list[str]          # per-point identifier passed back in click callbacks

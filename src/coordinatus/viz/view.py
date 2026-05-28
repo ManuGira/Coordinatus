@@ -184,7 +184,7 @@ class _DirectedGraphPanel(pg.PlotWidget):
         spots = []
         for spec in scatter_list:
             for i in range(len(spec.ids)):
-                pos = spec.positions[i]
+                pos = spec.points[i]
                 spots.append(
                     {
                         "pos": (float(pos[0]), float(pos[1])),
@@ -324,7 +324,7 @@ class _PlotPanel(pg.PlotWidget):
             return
         spots = [
             {
-                "pos": (float(spec.positions[i, 0]), float(spec.positions[i, 1])),
+                "pos": (float(spec.points[i, 0]), float(spec.points[i, 1])),
                 "brush": pg.mkBrush(spec.colors[i]),
                 "pen": pg.mkPen(None),
                 "size": spec.sizes[i],

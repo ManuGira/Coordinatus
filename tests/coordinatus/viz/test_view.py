@@ -77,7 +77,7 @@ class TestViewEventHandlerProtocol:
 def _make_scatter(ids: list[str]) -> ScatterSpec:
     n = len(ids)
     return ScatterSpec(
-        positions=np.zeros((n, 2)),
+        points=np.zeros((n, 2)),
         colors=["#ffffff"] * n,
         sizes=[10.0] * n,
         ids=ids,
