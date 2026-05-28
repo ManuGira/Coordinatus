@@ -313,7 +313,7 @@ class VisualizerModel:
             scatters.append(
                 ScatterSpec(
                     points=origin.relative_to(self.view_space).coords.reshape(-1, 2),
-                    colors=['red'],
+                    colors=color,
                     sizes=[_NODE_SIZE_DEFAULT],
                     ids=[f"{space.uid}_origin"]
                 )

@@ -12,6 +12,7 @@ from coordinatus.coordinatus_types import CoordinateKind
 from coordinatus.serializer import to_json
 from coordinatus.space import Space, Space2D
 from coordinatus.transforms import translate2D
+from coordinatus.viz import color_hash
 from coordinatus.viz.model import VisualizerModel
 
 
@@ -524,7 +525,8 @@ class TestToSceneGraph:
         m.apply_message(_state([_space_def("world")]))
         scene = m.to_scene()
         sc = scene.graph.scatter[0]
-        assert sc.colors[0] == "#808080"
+        idx = sc.ids.index("world")
+        assert sc.colors[idx] == color_hash.generate("world")
 
     def test_multiple_spaces_in_single_scatter_spec(self):
         m = VisualizerModel()
