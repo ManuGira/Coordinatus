@@ -24,5 +24,5 @@ class TestPackageImports:
         import coordinatus
         
         # Since matplotlib is installed in dev dependencies, this should not be None
-        assert coordinatus.visualization2 is not None
+        assert coordinatus.visualization is not None
 

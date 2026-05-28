@@ -1,1 +1,1 @@
-"""Visualization sub-package (MVP architecture for visualization2)."""
+"""Visualization sub-package (MVP architecture for visualization)."""

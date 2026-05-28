@@ -9,9 +9,9 @@ from .serializer import to_json, from_json
 
 # Visualization is optional - only available if matplotlib is installed
 try:
-    from . import visualization2
+    from . import visualization
 except ImportError:  # pragma: no cover
-    visualization2 = None  # type: ignore[assignment]
+    visualization = None  # type: ignore[assignment]
 
 # Define what's available when using "from coordinate import *"
 __all__ = [

@@ -16,6 +16,7 @@
     - [Creating Spaces](#creating-spaces)
     - [Transformation Utilities](#transformation-utilities)
     - [Visualization (Optional)](#visualization-optional)
+  - [Notebooks](#notebooks)
   - [Examples](#examples)
   - [Testing](#testing)
   - [License](#license)
@@ -80,7 +81,7 @@ For plotting and visualization features (used in examples):
 
 **Using uv:**
 ```bash
-uv add coordinatus[plotting]
+uv add coordinatus[visualization]
 ```
 
 This installs matplotlib for the `coordinatus.visualization` module.

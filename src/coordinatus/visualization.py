@@ -5,7 +5,7 @@ Left panel  — interactive directed graph of Space hierarchy:
 Right panel — coordinates projected through the selected view_space.
 
 Run:
-    uv run python src/coordinatus/visualization2.py
+    uv run python src/coordinatus/visualization.py
 
 Send spaces and points over TCP (newline-terminated JSON):
     {
