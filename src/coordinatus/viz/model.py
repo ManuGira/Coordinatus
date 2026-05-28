@@ -216,7 +216,7 @@ class VisualizerModel:
             elif space.uid == self.hovered_node_id:
                 color = _COLOR_NODE_HOVERED
             else:
-                color = _COLOR_NODE_DEFAULT
+                color = color_hash.generate(seed=space.uid)
 
             scatter_positions.append([float(xy[0]), float(xy[1])])
             scatter_colors.append(color)

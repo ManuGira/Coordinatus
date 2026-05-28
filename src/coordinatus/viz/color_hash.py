@@ -1,3 +1,4 @@
+import hashlib
 
 def rgb2hsl(r:float, g: float, b: float):
     mx = max((r, g, b))
@@ -50,8 +51,7 @@ def to_hex(r: float, g: float, b: float) -> str:
 def generate(seed: str):
     def scale(x, min_val, max_val):
         return min_val + x*(max_val - min_val)
-
-    hash_value = hash(seed)
+    hash_value = int(hashlib.md5(seed.encode()).hexdigest(), 16)
     u = ((hash_value & 0xFFF0000) >> 16)/16**3
     v = ((hash_value & 0x000FF00) >> 8)/256
     w = (hash_value &  0x00000FF)/256
